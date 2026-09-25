@@ -1,0 +1,30 @@
+services:
+  aninode:
+    image: ${ANINODE_IMAGE:-ghcr.io/mistarille224/aninode:latest}
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-911}
+      PGID: ${PGID:-911}
+      UMASK: ${UMASK:-022}
+      # Daemon deployment policy: continuously effective across restarts.
+      ANINODE_INTERVAL: ${ANINODE_INTERVAL:-15m}
+      # First-run defaults only. Once /config/organizer.json exists, changing
+      # these values does not overwrite WebUI/config-file changes.
+      ANINODE_INIT_SOURCE: ${ANINODE_INIT_SOURCE:-/media/downloads}
+      ANINODE_INIT_TARGET: ${ANINODE_INIT_TARGET:-/media/library}
+      ANINODE_INIT_EXTENSIONS: ${ANINODE_INIT_EXTENSIONS:-.mkv,.mp4,.avi,.mov,.m4v,.ts,.webm}
+    ports:
+      - "${ANINODE_BIND:-127.0.0.1}:${ANINODE_PORT:-7391}:7391"
+    volumes:
+      # Writable persistent application configuration.
+      - ${CONFIG_ROOT:-./config}:/config
+      # One shared filesystem keeps downloads and library output hardlinkable.
+      - ${MEDIA_ROOT:-/path/to/media}:/media
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7391/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

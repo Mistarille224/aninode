@@ -1,0 +1,6 @@
+{
+  "id": "nyaa",
+  "provider": "nyaa",
+  "enabled": false,
+  "priority": 5
+}

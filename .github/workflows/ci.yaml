@@ -1,0 +1,469 @@
+name: CI and release
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+      - master
+    tags:
+      - "v*"
+
+  pull_request:
+    branches:
+      - dev
+      - main
+      - master
+
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate Go
+        shell: bash
+        run: |
+          test -z "$(gofmt -l .)"
+          go test ./...
+          go vet ./...
+          go run ./cmd/aninode check --config-dir ./config.example
+          git diff --exit-code
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Test frontend
+        working-directory: internal/server/web
+        run: |
+          npm test
+          npm run check
+
+  dev-arm64:
+    name: ARM64 dev image
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+
+    needs:
+      - go
+      - frontend
+
+    runs-on: ubuntu-24.04-arm
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify native architecture
+        shell: bash
+        run: |
+          test "$(uname -m)" = "aarch64"
+          docker version
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image name
+        id: image
+        shell: bash
+        run: |
+          echo "ghcr=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ARM64 dev image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+
+          tags: |
+            ${{ steps.image.outputs.ghcr }}:dev
+            ${{ steps.image.outputs.ghcr }}:dev-${{ github.sha }}
+
+          build-args: |
+            VERSION=dev
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+
+          cache-from: type=gha,scope=dev-arm64
+          cache-to: type=gha,mode=max,scope=dev-arm64
+
+  race:
+    name: Race detector
+
+    if: >
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          github.base_ref == 'main' ||
+          github.base_ref == 'master'
+        )
+      )
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Race test
+        run: go test -race ./...
+
+  container-smoke:
+    name: Container smoke
+
+    if: >
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' ||
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/master' ||
+      (
+        github.event_name == 'pull_request' &&
+        (
+          github.base_ref == 'main' ||
+          github.base_ref == 'master'
+        )
+      )
+
+    needs:
+      - go
+      - frontend
+
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Docker versions
+        run: |
+          docker version
+          docker compose version
+
+      - name: Build production smoke image
+        run: |
+          docker build \
+            --build-arg VERSION=ci \
+            --build-arg COMMIT="$GITHUB_SHA" \
+            --build-arg BUILD_DATE=1970-01-01T00:00:00Z \
+            -t aninode:smoke .
+
+      - name: Docker Compose smoke
+        run: bash ./scripts/container-smoke.sh aninode:smoke
+
+  release-artifacts:
+    name: Release artifacts
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    needs:
+      - go
+      - frontend
+      - race
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
+      - name: Build deterministic release archives
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+          SOURCE_DATE_EPOCH: ${{ steps.meta.outputs.epoch }}
+          DIST_DIR: dist-a
+        run: bash ./scripts/release.sh
+
+      - name: Rebuild and compare artifact digests
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+          SOURCE_DATE_EPOCH: ${{ steps.meta.outputs.epoch }}
+          DIST_DIR: dist-b
+        run: |
+          bash ./scripts/release.sh
+          diff -u dist-a/SHA256SUMS dist-b/SHA256SUMS
+
+      - name: Validate release archives
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        shell: bash
+        run: |
+          cd dist-a
+
+          sha256sum -c SHA256SUMS
+
+          archive="aninode_${VERSION}_linux_amd64.tar.gz"
+          archive_root="aninode_${VERSION}_linux_amd64"
+          archive_entries="$(tar -tzf "$archive")"
+
+          grep -Fxq "$archive_root/LICENSE" <<< "$archive_entries"
+          grep -Fxq "$archive_root/README.md" <<< "$archive_entries"
+          grep -Fxq "$archive_root/config.example/organizer.json" <<< "$archive_entries"
+
+          root="$(mktemp -d)"
+          tar -xzf "$archive" -C "$root"
+
+          "$root/$archive_root/aninode" version \
+            | grep -F "aninode ${VERSION} commit=${COMMIT}"
+
+          jq -e \
+            '.spdxVersion == "SPDX-2.3" and .packages[0].licenseDeclared == "Apache-2.0"' \
+            "aninode_${VERSION}_artifacts.spdx.json" >/dev/null
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate source SBOM
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: |
+          syft dir:. \
+            -o "spdx-json=dist-a/aninode_${VERSION}_source.syft.spdx.json"
+
+          cd dist-a
+
+          sha256sum \
+            "aninode_${VERSION}_source.syft.spdx.json" \
+            >> SHA256SUMS
+
+          LC_ALL=C sort -k2 -o SHA256SUMS SHA256SUMS
+
+          sha256sum -c SHA256SUMS
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: aninode-${{ steps.meta.outputs.version }}-release
+          path: dist-a/
+          if-no-files-found: error
+
+  container-build:
+    name: Container ${{ matrix.arch }}
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    needs:
+      - go
+      - frontend
+      - race
+      - container-smoke
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+            machine: x86_64
+
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            machine: aarch64
+
+    runs-on: ${{ matrix.runner }}
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    env:
+      DOCKERHUB_ENABLED: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify native architecture
+        shell: bash
+        run: |
+          test "$(uname -m)" = "${{ matrix.machine }}"
+          docker version
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_ENABLED == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: mistarille
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve image name
+        id: image
+        shell: bash
+        run: |
+          echo "ghcr=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate architecture image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            name=${{ steps.image.outputs.ghcr }}
+            name=mistarille/aninode,enable=${{ env.DOCKERHUB_ENABLED }}
+
+          tags: |
+            type=raw,value=build-${{ github.sha }}-${{ matrix.arch }}
+
+      - name: Build and push architecture image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+
+          sbom: true
+          provenance: mode=max
+
+          cache-from: type=gha,scope=container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=container-${{ matrix.arch }}
+
+  container-manifest:
+    name: Container manifest
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    needs:
+      - container-build
+
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      DOCKERHUB_ENABLED: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_ENABLED == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: mistarille
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve image name
+        id: image
+        shell: bash
+        run: |
+          echo "ghcr=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            name=${{ steps.image.outputs.ghcr }}
+            name=mistarille/aninode,enable=${{ env.DOCKERHUB_ENABLED }}
+
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Publish and verify multi-platform manifests
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        shell: bash
+        run: |
+          while IFS= read -r tag; do
+            test -n "$tag" || continue
+
+            image="${tag%:*}"
+
+            docker buildx imagetools create \
+              --tag "$tag" \
+              "$image:build-${GITHUB_SHA}-amd64" \
+              "$image:build-${GITHUB_SHA}-arm64"
+
+            inspection="$(docker buildx imagetools inspect "$tag")"
+
+            grep -q 'linux/amd64' <<< "$inspection"
+            grep -q 'linux/arm64' <<< "$inspection"
+          done <<< "$IMAGE_TAGS"

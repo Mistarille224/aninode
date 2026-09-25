@@ -1,0 +1,10 @@
+/aninode
+/config.json
+/config/
+.env
+*.log
+/dist/
+
+.DS_Store
+
+/secrets/

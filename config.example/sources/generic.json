@@ -1,0 +1,8 @@
+{
+  "id": "generic",
+  "provider": "generic",
+  "rss": [{ "url": "https://example.com/anime.xml" }],
+  "search": { "url_template": "https://example.com/anime/search?q={query}" },
+  "enabled": false,
+  "priority": 50
+}

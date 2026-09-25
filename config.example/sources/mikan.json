@@ -1,0 +1,6 @@
+{
+  "id": "mikan",
+  "provider": "mikan",
+  "enabled": false,
+  "priority": 5
+}

@@ -1,0 +1,9 @@
+services:
+  aninode:
+    image: aninode:dev
+    build:
+      context: .
+      args:
+        VERSION: dev
+        COMMIT: local
+        BUILD_DATE: local

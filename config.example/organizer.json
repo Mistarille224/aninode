@@ -1,0 +1,5 @@
+{
+  "source": "/media/downloads",
+  "target": "/media/library",
+  "extensions": [".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".webm"]
+}

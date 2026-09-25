@@ -1,0 +1,13 @@
+{
+  "id": "qbittorrent",
+  "type": "qbittorrent",
+  "url": "http://qbittorrent:8080",
+  "username": "admin",
+  "path_mappings": [
+    {
+      "remote": "/downloads",
+      "local": "/media/downloads"
+    }
+  ],
+  "enabled": true
+}

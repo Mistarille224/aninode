@@ -1,0 +1,1 @@
+{"type":"module","scripts":{"test":"node --test app.test.mjs","check":"node --check app.js && node --check controls.js && node --check i18n.js && go run ../../../scripts/check-i18n.go"}}

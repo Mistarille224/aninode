@@ -47,6 +47,28 @@ test("page binder resolves every referenced handler without a browser",()=>{
   try{assert.doesNotThrow(()=>bind())}finally{if(previous===undefined)delete globalThis.document;else globalThis.document=previous}
 });
 test("migration presentation keeps movie seasonless and series seasonal",()=>{const plan={task_id:"t",task_name:"relabc",client:"c",decision:"unknown",detail:"backend topology detail"};const movie=renderMigration({groups:[{key:"m",title:"ghighi",season:1,media_type:"movie",ready:0,blocked:1,plans:[plan]}]});assert.doesNotMatch(movie,/data-migration-season /);assert.match(movie,/Year \(optional\)/);assert.doesNotMatch(movie,/data-migration-hint|media library target：/);assert.match(movie,/Verify the title and type/);assert.match(movie,/<summary>Technical details<\/summary>/);assert.match(movie,/backend topology detail/);const series=renderMigration({groups:[{key:"s",title:"abcabc",season:2,media_type:"series",ready:0,blocked:1,plans:[plan]}]});assert.match(series,/data-migration-season /);assert.match(series,/value="2"/);assert.match(series,/Year \(optional\)/);assert.match(series,/Verify the title and type/)});
+test("processing migration shows the submitted values instead of scan defaults",()=>{
+  const plan={groups:[{key:"s",title:"Scan title",season:2,media_type:"series",blocked:1,filter_options:{groups:["Old group","New group"]},plans:[{task_id:"t",decision:"unknown"}]}]};
+  const submitted={key:"s",title:"Confirmed title",media_type:"series",year:2025,season:3,filters:{groups:["New group"]}};
+  const html=renderMigration(plan,submitted);
+  assert.match(html,/<h2>Confirmed title<\/h2>/);
+  assert.match(html,/data-migration-title value="Confirmed title" readonly/);
+  assert.match(html,/data-migration-year[^>]*value="2025"[^>]*readonly/);
+  assert.match(html,/data-migration-season[^>]*value="3"[^>]*readonly/);
+  assert.match(html,/value="New group" checked/);
+  assert.doesNotMatch(html,/value="Old group" checked/);
+  assert.match(html,/aria-busy="true"/);
+  assert.match(html,/Processing…/);
+  assert.doesNotMatch(html,/value="Scan title"/);
+});
+test("processing migration reflects a submitted type change and classification",()=>{
+  const plan={groups:[{key:"s",title:"Scan title",season:2,media_type:"series",blocked:1,plans:[{task_id:"t",decision:"unknown",detail:"movie bundle requires classification"}]}]};
+  const html=renderMigration(plan,{key:"s",title:"Confirmed movie",media_type:"movie",year:2024,season:0,filters:{},movie:{classify:{"Extras/trailer.mkv":"trailer"}}});
+  assert.match(html,/<h2>Confirmed movie<\/h2>/);
+  assert.match(html,/<option value="movie" selected>Movie<\/option>/);
+  assert.doesNotMatch(html,/data-migration-season type="number"/);
+  assert.match(html,/Extras\/trailer.mkv = trailer/);
+});
 test("migration type switching creates a reasonable series season and removes movie season",()=>{assert.match(migrationSeasonField("migration-0","series"),/value="1"/);assert.equal(migrationSeasonField("migration-0","movie",7),"");assert.match(migrationSeasonField("migration-0","series",7),/value="7"/);assert.match(migrationSeasonField("migration-0","series",0),/value="0"/)});
 test("migration decisions distinguish executable and blocked plans",()=>{assert.equal(migrationDecisionPresentation("adopt").ready,true);assert.equal(migrationDecisionPresentation("relocate").ready,true);assert.equal(migrationDecisionPresentation("conflict").ready,false);assert.equal(migrationDecisionPresentation("unknown").ready,false)});
 test("new-entry adopt is presented as no-move confirmation",()=>{const html=renderMigration({groups:[{key:"s",title:"abcabc",season:1,media_type:"series",ready:1,blocked:0,plans:[{task_name:"[grpabc] abcabc S01",client:"qbit",save_path:"/downloads/TV/abcabc/[grpabc] abcabc S01",decision:"adopt"}]}]});assert.match(html,/No move needed/);assert.match(html,/managed without moving existing downloaded files/);assert.doesNotMatch(html,/can be adopted directly|canonical directory/)});

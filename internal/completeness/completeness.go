@@ -77,9 +77,8 @@ func MissingInRange(inv inventory.Snapshot, entryKey string, season int, r Episo
 	return missing, "incomplete"
 }
 
-// EpisodeKeys turns filesystem-proven target holes into exact bound search keys.
-// Folder/offset projection is applied later to each candidate using current
-// source evidence; there is no separate reverse-projection model.
+// EpisodeKeys turns target holes into search keys when no folder projection
+// applies. Callers with folder mappings translate source episodes separately.
 func EpisodeKeys(entryKey string, season int, missing []int) []episode.Key {
 	out := make([]episode.Key, 0, len(missing))
 	for _, ep := range missing {

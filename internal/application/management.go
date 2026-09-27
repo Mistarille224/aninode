@@ -1153,7 +1153,13 @@ func (a *App) PreviewEntry(ctx context.Context, id string, req PreviewRequest) (
 	res.TargetEpisode = &c.Episode
 	res.Decision = string(c.Decision)
 	res.Reason = c.Reason
-	cfg, ce := b.OrganizerForPreview(id, c.SourceEpisode.Season)
+	var cfg organizer.Config
+	var ce error
+	if rule, ok := w.FolderProjections[c.SourceFolder]; ok && c.SourceFolder != "" {
+		cfg, ce = b.OrganizerForFolderPublication(id, c.SourceEpisode.Season, rule.Season, rule.EpisodeOffset, filepath.Join(w.DeclarationPath, c.SourceFolder))
+	} else {
+		cfg, ce = b.OrganizerForPreview(id, c.SourceEpisode.Season)
+	}
 	if ce == nil {
 		name := filepath.Base(req.Name)
 		if filepath.Ext(name) == "" && len(cfg.Extensions) > 0 {

@@ -417,6 +417,29 @@ func TestPreviewUsesBackendDomainSeam(t *testing.T) {
 	}
 }
 
+func TestPreviewUsesFolderEpisodeProjectionForExpectedPath(t *testing.T) {
+	f := newFixture(t, map[string]string{"f": "feed"})
+	w, err := catalog.CreateManagedAt(f.src, f.lib, "abcabc146", 2026, 1, catalog.Declaration{
+		Folders: map[string]catalog.FolderProjection{"Season 01": {Season: 2, EpisodeOffset: -12}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"abcabc146 S01E13.mkv", "abcabc146 S01E15.mkv"} {
+		mustWrite(t, filepath.Join(w.DeclarationPath, "Season 01", name), "media")
+	}
+	app := service(t, f, fakeFetcher{})
+	got, err := app.PreviewEntry(context.Background(), w.Key, PreviewRequest{Name: "abcabc146 S01E14.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceEpisode == nil || got.SourceEpisode.Season != 1 || got.SourceEpisode.EpisodeStart != 14 ||
+		got.TargetEpisode == nil || got.TargetEpisode.Season != 2 || got.TargetEpisode.EpisodeStart != 2 ||
+		!strings.Contains(got.ExpectedPath, filepath.Join("Season 02", "abcabc146 S02E02.mkv")) {
+		t.Fatalf("offset preview=%+v", got)
+	}
+}
+
 func TestClientStatusesProbeEnabledBackends(t *testing.T) {
 	f := newFixture(t, nil)
 	app := service(t, f, fakeFetcher{})

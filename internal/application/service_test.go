@@ -1645,6 +1645,59 @@ func TestManualSeasonCompletionDiscoversAndRepairsMissingTail(t *testing.T) {
 	}
 }
 
+func TestManualSeasonCompletionSearchesSourceEpisodeAfterOffset(t *testing.T) {
+	f := newFixture(t, map[string]string{"f": "feed"})
+	w, err := catalog.CreateManagedAt(f.src, f.lib, "abcabc061", 2026, 1, catalog.Declaration{
+		Sources: []string{"f"},
+		Folders: map[string]catalog.FolderProjection{"Season 01": {Season: 2, EpisodeOffset: -12}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ep := range []int{13, 15} {
+		mustWrite(t, filepath.Join(w.DeclarationPath, "Season 01", fmt.Sprintf("abcabc061 S01E%02d.mkv", ep)), fmt.Sprint(ep))
+	}
+	history := &fakeHistory{entries: mustReleases(t, "generic", []rss.Entry{
+		entry("[G] abcabc061 S01E14 1080p", "hist14"),
+	})}
+	app, err := Open(Options{ConfigRoot: f.cfg, Fetcher: fakeFetcher{}, History: history, Backends: map[string]download.Backend{"c": f.client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Cycle(context.Background(), CycleOptions{Reconcile: true}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := app.Backfill(context.Background(), w.Key, 2, 1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.State.Missing) != 1 || out.State.Missing[0] != 2 {
+		t.Fatalf("target gaps=%+v", out.State)
+	}
+	if len(history.calls) != 1 || len(history.calls[0].SourceMissing) != 1 ||
+		history.calls[0].SourceMissing[0].Season != 1 || history.calls[0].SourceMissing[0].EpisodeStart != 14 {
+		t.Fatalf("source search=%+v", history.calls)
+	}
+	if len(f.client.adds) != 1 || f.client.adds[0].URL != "https://example.test/hist14.torrent" {
+		t.Fatalf("acquisitions=%+v issues=%+v", f.client.adds, out.Issues)
+	}
+}
+
+func TestBackfillSourceKeysKeepsSourceAndTargetCoordinatesSeparate(t *testing.T) {
+	evidence := []catalog.FolderProjectionEvidence{
+		{Folder: "first", TargetSeason: 2, EpisodeOffset: -12, SourceSeason: 1, SourceSeasonKnown: true},
+		{Folder: "second", TargetSeason: 2, EpisodeOffset: -24, SourceSeason: 3, SourceSeasonKnown: true},
+	}
+	keys := backfillSourceKeys("series/show", 2, []int{2}, evidence)
+	if len(keys) != 2 || keys[0].Season != 1 || keys[0].EpisodeStart != 14 || keys[1].Season != 3 || keys[1].EpisodeStart != 26 {
+		t.Fatalf("source keys=%+v", keys)
+	}
+	keys = backfillSourceKeys("series/show", 2, []int{2}, nil)
+	if len(keys) != 1 || keys[0].Season != 2 || keys[0].EpisodeStart != 2 {
+		t.Fatalf("unmapped source keys=%+v", keys)
+	}
+}
+
 func TestManualSeasonCompletionReportsStillUnresolvedEpisode(t *testing.T) {
 	f := newFixture(t, map[string]string{"f": "feed"})
 	w, err := catalog.CreateManagedAt(f.src, f.lib, "abcabc061", 2026, 1, catalog.Declaration{Sources: []string{"f"}})

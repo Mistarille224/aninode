@@ -14,6 +14,7 @@ import (
 	"aninode/internal/catalog"
 	"aninode/internal/completeness"
 	"aninode/internal/configstore"
+	"aninode/internal/episode"
 	"aninode/internal/inventory"
 	"aninode/internal/naming"
 	"aninode/internal/observation"
@@ -26,6 +27,43 @@ func (a *App) clock() time.Time {
 		return a.now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+// backfillSourceKeys translates target inventory gaps into the episode numbers
+// used by release filenames. Search every applicable folder mapping; candidate
+// projection and selection later decide which release fills the target gap.
+func backfillSourceKeys(entryKey string, targetSeason int, missing []int, evidence []catalog.FolderProjectionEvidence) []episode.Key {
+	var mappings []catalog.FolderProjectionEvidence
+	for _, ev := range evidence {
+		if ev.TargetSeason == targetSeason {
+			mappings = append(mappings, ev)
+		}
+	}
+	if len(mappings) == 0 {
+		return completeness.EpisodeKeys(entryKey, targetSeason, missing)
+	}
+	var keys []episode.Key
+	seen := map[[2]int]bool{}
+	for _, targetEpisode := range missing {
+		for _, ev := range mappings {
+			sourceEpisode := targetEpisode - ev.EpisodeOffset
+			if sourceEpisode <= 0 {
+				continue
+			}
+			// The release parser assigns season 1 to seasonless source names.
+			sourceSeason := 1
+			if ev.SourceSeasonKnown {
+				sourceSeason = ev.SourceSeason
+			}
+			identity := [2]int{sourceSeason, sourceEpisode}
+			if seen[identity] {
+				continue
+			}
+			seen[identity] = true
+			keys = append(keys, episode.Key{EntryKey: entryKey, Season: sourceSeason, EpisodeStart: sourceEpisode, EpisodeEnd: sourceEpisode, Special: sourceSeason == 0})
+		}
+	}
+	return keys
 }
 
 func (a *App) updateCompleteness(bundle configstore.Bundle, inv inventory.Snapshot, _ map[string][]release.Release) ([]completeness.SeasonState, error) {
@@ -561,9 +599,9 @@ func (a *App) runBackfill(ctx context.Context, rt *runtimeSnapshot, states []com
 		if len(missing) == 0 {
 			continue
 		}
-		sourceKeys := completeness.EpisodeKeys(w.Key, st.Season, missing)
 		queries := backfillSearchEvidence(w, graph, rt.bundle.Organizer.Extensions)
 		evidence := catalog.ObserveFolderProjectionEvidenceFromSnapshot(w, graph.Sources[w.Key], rt.bundle.Organizer.Extensions)
+		sourceKeys := backfillSourceKeys(w.Key, st.Season, missing, evidence)
 		bySource := map[string][]release.Release{}
 		searched := false
 		searchResults := 0
@@ -649,9 +687,9 @@ func (a *App) runManualBackfill(ctx context.Context, rt *runtimeSnapshot, entryK
 	if status != "incomplete" || len(missing) == 0 {
 		return st, nil, nil, nil, nil, nil
 	}
-	sourceKeys := completeness.EpisodeKeys(w.Key, season, missing)
 	queries := backfillSearchEvidence(w, graph, rt.bundle.Organizer.Extensions)
 	evidence := catalog.ObserveFolderProjectionEvidenceFromSnapshot(w, graph.Sources[w.Key], rt.bundle.Organizer.Extensions)
+	sourceKeys := backfillSourceKeys(w.Key, season, missing, evidence)
 	bySource := map[string][]release.Release{}
 	var warnings []string
 	var searchErrs []error

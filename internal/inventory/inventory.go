@@ -239,7 +239,9 @@ func scan(entries map[string]catalog.Entry, physical map[string]filesystem.Snaps
 			}
 			analysis := medianame.AnalyzeFiles(names)
 			physicalMeaning := map[filesystem.ObjectID]string{}
-			logicalObject := map[string]filesystem.ObjectID{}
+			// Different revisions of one episode are distinct, valid media
+			// objects. Two objects claiming the same revision remain ambiguous.
+			logicalVersions := map[string]map[int]filesystem.ObjectID{}
 			for i, media := range observed {
 				hint := -1
 				if media.hasHint {
@@ -275,18 +277,25 @@ func scan(entries map[string]catalog.Entry, physical map[string]filesystem.Snaps
 				}
 				physicalMeaning[media.id] = meaning
 				conflict := false
+				version := p.Version
+				if version <= 0 {
+					version = 1
+				}
 				for n := p.EpisodeStart; n <= p.EpisodeEnd; n++ {
 					logical := episode.Logical(episode.Key{EntryKey: id, Season: season, EpisodeStart: n, EpisodeEnd: n, Special: season == 0})
-					if previous, exists := logicalObject[logical]; exists && previous != media.id {
+					if logicalVersions[logical] == nil {
+						logicalVersions[logical] = map[int]filesystem.ObjectID{}
+					}
+					if previous, exists := logicalVersions[logical][version]; exists && previous != media.id {
 						si := wi.Seasons[season]
 						si.Known = false
 						si.Episodes = nil
-						si.Err = fmt.Errorf("episode %s has multiple physical filesystem objects", logical)
+						si.Err = fmt.Errorf("episode %s revision v%d has multiple physical filesystem objects", logical, version)
 						wi.Seasons[season] = si
 						conflict = true
 						break
 					}
-					logicalObject[logical] = media.id
+					logicalVersions[logical][version] = media.id
 				}
 				if conflict {
 					continue

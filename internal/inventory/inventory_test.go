@@ -165,6 +165,43 @@ func TestSharedMediaParserRecognizesHistoricalSeasonNames(t *testing.T) {
 	}
 }
 
+func TestEpisodeRevisionsRemainKnownButDuplicateRevisionConflicts(t *testing.T) {
+	root := t.TempDir()
+	sourceRoot := filepath.Join(root, "source")
+	libraryRoot := filepath.Join(root, "library")
+	w := catalog.Entry{Key: "series/Test", Path: filepath.Join(libraryRoot, "TV", "Test"), Seasons: []int{1}}
+	season := filepath.Join(w.Path, "Season 01")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(season, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Test S01E08.mp4", "Test S01E08 - v2.mp4"} {
+		if err := os.WriteFile(filepath.Join(season, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries := map[string]catalog.Entry{w.Key: w}
+	if got := ScanWithExtensions(entries, []string{".mp4", ".mkv"}).Season(w.Key, 1); !got.Known || got.Err != nil {
+		t.Fatalf("versioned filesystem inventory=%+v", got)
+	}
+	graph, err := observation.Build(sourceRoot, libraryRoot, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := ScanGraph(entries, graph, []string{".mp4", ".mkv"})
+	if got := inv.Availability(episode.Key{EntryKey: w.Key, Season: 1, EpisodeStart: 8, EpisodeEnd: 8}); got != Present {
+		t.Fatalf("versioned graph availability=%v", got)
+	}
+	if err := os.WriteFile(filepath.Join(season, "Test S01E08.mkv"), []byte("another ordinary revision"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ScanWithExtensions(entries, []string{".mp4", ".mkv"}).Season(w.Key, 1); got.Known || got.Err == nil {
+		t.Fatalf("duplicate ordinary revision was accepted: %+v", got)
+	}
+}
+
 func TestInventoryUsesSiblingDifferencesBeforeApplyingSeasonContext(t *testing.T) {
 	root := t.TempDir()
 	id := "series/Test"
@@ -264,7 +301,7 @@ func TestOnePhysicalObjectWithTwoEpisodeNamesMakesSeasonUnknown(t *testing.T) {
 	}
 }
 
-func TestOneEpisodeWithTwoPhysicalObjectsMakesSeasonUnknown(t *testing.T) {
+func TestOneEpisodeSameRevisionWithTwoPhysicalObjectsMakesSeasonUnknown(t *testing.T) {
 	root := t.TempDir()
 	id := "series/Test"
 	w := catalog.Entry{Key: id, Path: filepath.Join(root, "abcabc146"), Seasons: []int{1}}
@@ -280,7 +317,7 @@ func TestOneEpisodeWithTwoPhysicalObjectsMakesSeasonUnknown(t *testing.T) {
 
 	s := ScanWithExtensions(map[string]catalog.Entry{id: w}, []string{".mkv"})
 	if s.Season(id, 1).Known {
-		t.Fatal("one episode backed by multiple inodes must be unknown")
+		t.Fatal("one episode revision backed by multiple inodes must be unknown")
 	}
 }
 

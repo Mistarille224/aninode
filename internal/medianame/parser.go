@@ -28,6 +28,7 @@ var (
 	bracketSxERE      = regexp.MustCompile(`(?i)^\s*S(\d{1,2})[ ._-]*E(\d{1,4})(?:[ ._-]*-[ ._-]*E?(\d{1,4}))?(?:v(\d+))?\s*$`)
 	bracketXRE        = regexp.MustCompile(`(?i)^\s*(\d{1,2})x(\d{1,4})(?:-(\d{1,4}))?(?:v(\d+))?\s*$`)
 	bracketEpisodeRE  = regexp.MustCompile(`(?i)^\s*(?:EP|E)(\d{1,4})(?:[ ._-]*-[ ._-]*E?(\d{1,4}))?(?:v(\d+))?\s*$`)
+	bracketVersionRE  = regexp.MustCompile(`(?i)^v(\d+)$`)
 	seasonSuffixRE    = regexp.MustCompile(`(?i)(?:^|[ ._-])(?:season[ ._-]*(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)[ ._-]+season|s(\d{1,2}))\s*$`)
 	seasonAtomRE      = regexp.MustCompile(`(?i)^\s*(?:season[ ._-]*(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)[ ._-]+season|s(\d{1,2}))\s*$`)
 	suffixVersionRE   = regexp.MustCompile(`(?i)\s+-\s+v(\d+)\s*$`)
@@ -473,6 +474,14 @@ func parseFullyBracketed(groups []string) (Parsed, bool) {
 			p.EpisodeStart, p.EpisodeEnd, p.Version = atom.Start, atom.End, atom.Version
 			if p.Version <= 0 {
 				p.Version = 1
+			}
+			// Some releases put the revision in its own later bracket, after
+			// technical metadata: [08][1080p][JPSC][v2]. It belongs to the
+			// episode, not the title or an opaque metadata tag.
+			for _, suffix := range groups[index+1:] {
+				if revision := bracketVersionRE.FindStringSubmatch(strings.TrimSpace(suffix)); len(revision) > 1 && atoi(revision[1]) > 1 {
+					p.Version = atoi(revision[1])
+				}
 			}
 			return p, true
 		}

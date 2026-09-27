@@ -192,20 +192,75 @@ func (a *App) searchBackfillSourceObserved(ctx context.Context, rt *runtimeSnaps
 		}
 		return nil
 	}
+	primary := make([]plannedQuery, 0, len(queries))
+	fallback := make([]plannedQuery, 0, len(queries))
+	for _, q := range queries {
+		if q.fallback {
+			fallback = append(fallback, q)
+		} else {
+			primary = append(primary, q)
+		}
+	}
+	if len(primary) == 0 {
+		primary, fallback = fallback, nil
+	}
 
-	for _, target := range targets {
-		primary := make([]plannedQuery, 0, len(queries))
-		fallback := make([]plannedQuery, 0, len(queries))
-		for _, q := range queries {
-			if !q.fallback {
-				primary = append(primary, q)
-			} else {
-				fallback = append(fallback, q)
+	// A title-only tracker result can cover many holes. Search it once with
+	// every outstanding target, then reserve episode-specific queries for holes
+	// that remain. The provider still checks native torrent names per target.
+	if len(targets) > 1 {
+		uncovered := func() []provider.SearchEpisode {
+			remaining := make([]provider.SearchEpisode, 0, len(targets))
+			for _, target := range targets {
+				if !backfillSearchHasAcceptableTarget(ctx, rt, sourceID, req.EntryKey, out, target, observedEvidence) {
+					remaining = append(remaining, target)
+				}
+			}
+			return remaining
+		}
+		runBroad := func(values []plannedQuery, remaining []provider.SearchEpisode) error {
+			if len(remaining) == 0 {
+				return nil
+			}
+			for _, q := range values {
+				search := provider.SearchRequest{Query: q.text, Season: remaining[0].Season, SeasonExplicit: true, Targets: remaining, Limit: 50}
+				found, err := src.Search(ctx, search)
+				appendValues(found)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("query %q range mode=title evidence=%s: %w", q.text, q.origin, err))
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+			}
+			return nil
+		}
+		if err := runBroad(primary, targets); err != nil {
+			return out, errors.Join(append(errs, err)...)
+		}
+		for _, target := range uncovered() {
+			if backfillSearchHasAcceptableTarget(ctx, rt, sourceID, req.EntryKey, out, target, observedEvidence) {
+				continue
+			}
+			if err := runQueries(target, primary, false); err != nil {
+				return out, errors.Join(append(errs, err)...)
 			}
 		}
-		if len(primary) == 0 {
-			primary, fallback = fallback, nil
+		if err := runBroad(fallback, uncovered()); err != nil {
+			return out, errors.Join(append(errs, err)...)
 		}
+		for _, target := range uncovered() {
+			if backfillSearchHasAcceptableTarget(ctx, rt, sourceID, req.EntryKey, out, target, observedEvidence) {
+				continue
+			}
+			if err := runQueries(target, fallback, false); err != nil {
+				return out, errors.Join(append(errs, err)...)
+			}
+		}
+		return out, errors.Join(errs...)
+	}
+
+	for _, target := range targets {
 
 		// Phase 1: cheap exact-episode queries from the strongest filesystem names.
 		if err := runQueries(target, primary, false); err != nil {
@@ -638,6 +693,10 @@ func (a *App) runManualBackfill(ctx context.Context, rt *runtimeSnapshot, entryK
 	warnings = append(warnings, ws...)
 	reviewCandidates, reviewWarnings := reviewAvailable(plans.Review, inv)
 	warnings = append(warnings, reviewWarnings...)
+	covered := candidate.Plan{Candidates: append(append([]candidate.Candidate(nil), chosen...), reviewCandidates...)}
+	if unresolved := uncoveredMissing(covered, w.Key, season, missing); len(unresolved) > 0 {
+		warnings = append(warnings, fmt.Sprintf("backfill %s season %d: no downloadable or reviewable historical candidate was selected for episodes %v; rejection summary: %s", w.Key, season, unresolved, backfillRejectionSummary(plans.Diagnostic, w.Key, season, unresolved)))
+	}
 	reviews := make([]RepairReview, 0, len(reviewCandidates))
 	for _, value := range reviewCandidates {
 		reviews = append(reviews, newRepairReviewObserved(w, value, evidence))

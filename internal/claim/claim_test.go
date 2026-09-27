@@ -162,6 +162,46 @@ func TestSeriesContainerWithMultipleTargetSeasonsIsRejected(t *testing.T) {
 	}
 }
 
+func TestSeriesTaskWithOrdinaryAndBracketedV2FilesResolves(t *testing.T) {
+	root := t.TempDir()
+	id := "series/上伊那ぼたん、酔へる姿は百合の花 (2026)"
+	entryRoot := filepath.Join(root, "source", "TV", "上伊那ぼたん、酔へる姿は百合の花 (2026)")
+	seasonRoot := filepath.Join(entryRoot, "Season 01")
+	w := catalog.Entry{Key: id, Title: "上伊那ぼたん、酔へる姿は百合の花", Year: 2026, DeclarationPath: entryRoot, Path: filepath.Join(root, "library", "TV", "上伊那ぼたん、酔へる姿は百合の花 (2026)"), Seasons: []int{1}, Enabled: true}
+	b := claimBundle(root, map[string]catalog.Entry{id: w})
+	b.Organizer.Extensions = []string{".mp4"}
+	paths := []string{
+		filepath.Join(seasonRoot, "[Nekomoe kissaten][Kamiina Botan, Yoeru Sugata wa Yuri no Hana][08][1080p][JPSC].mp4"),
+		filepath.Join(seasonRoot, "[Nekomoe kissaten][Kamiina Botan, Yoeru Sugata wa Yuri no Hana][08][1080p][JPSC][v2].mp4"),
+	}
+	for _, path := range paths {
+		if err := mkdirFile(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := b.OrganizerForPreview(id, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary, matched, err := organizer.PreviewDestination(cfg, filepath.Base(paths[0]))
+	if err != nil || !matched {
+		t.Fatalf("ordinary destination=%q matched=%v err=%v", ordinary, matched, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(ordinary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(paths[0], ordinary); err != nil {
+		t.Fatal(err)
+	}
+	got := Resolve(context.Background(), b, "fake", download.Task{ID: "task-v2", Name: "Kamiina Botan 08", SavePath: entryRoot, ContentPath: seasonRoot}, []download.File{
+		{Path: paths[0], Size: 5, Wanted: true, Progress: 1},
+		{Path: paths[1], Size: 5, Wanted: true, Progress: 1},
+	})
+	if got.Status != Resolved || got.EntryKey != id || got.TargetEpisode.EpisodeStart != 8 || got.TargetEpisode.EpisodeEnd != 8 {
+		t.Fatalf("v1/v2 claim=%+v", got)
+	}
+}
+
 func TestSeasonlessAbsoluteTaskUsesDeclaredFolderProjectionWithoutAmbiguity(t *testing.T) {
 	root := t.TempDir()
 	id := "series/abcabc (2004)"

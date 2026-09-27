@@ -24,6 +24,8 @@ func TestParseMediaNames(t *testing.T) {
 		{"case15", "[grpabc166] abcabc defdef ghighi - 29 [1080P].mp4", "abcabc defdef ghighi", 0, 0, 29, 29, 1},
 		{"brackets", "[grpabc165][abcabc142][12][1080p].mkv", "abcabc142", 0, 0, 12, 12, 1},
 		{"brackets v2", "[grpabc165][abcabc142][12v2][1080p].mkv", "abcabc142", 0, 0, 12, 12, 2},
+		{"revision after metadata", "[Nekomoe kissaten][Kamiina Botan, Yoeru Sugata wa Yuri no Hana][08][1080p][JPSC][v2].mp4", "Kamiina Botan, Yoeru Sugata wa Yuri no Hana", 0, 0, 8, 8, 2},
+		{"double-digit revision after metadata", "[grpabc165][abcabc142][12][1080p][v10].mkv", "abcabc142", 0, 0, 12, 12, 10},
 		{"bracket range", "[grpabc165][abcabc142][01-02][720p].mkv", "abcabc142", 0, 0, 1, 2, 1},
 		{"case20", "[grpabc201] ABCABC DEFDEF - 1138 (metaabc 1920x1080 HEVC AAC MKV)", "ABCABC DEFDEF", 0, 0, 1138, 1138, 1},
 		{"case21", "86 - abcabc defdef - 01.mkv", "86 - abcabc defdef", 0, 0, 1, 1, 1},

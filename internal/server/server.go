@@ -40,6 +40,8 @@ type Service struct {
 	reconcileWG        sync.WaitGroup
 	lifecycleOnce      sync.Once
 	reconcileCompleted chan reconcileMode
+	backfillMu         sync.Mutex
+	backfillJobs       map[string]BackfillJob
 }
 
 type APIError struct {
@@ -103,6 +105,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /ui/catalog/{media}/{name}/preview", s.auth(s.previewEntry))
 	mux.HandleFunc("PUT /ui/catalog/{media}/{name}/folders/{folder}/projection", s.auth(s.putFolderProjection))
 	mux.HandleFunc("POST /ui/catalog/{media}/{name}/seasons/{season}/backfill", s.auth(s.backfill))
+	mux.HandleFunc("GET /ui/catalog/{media}/{name}/seasons/{season}/backfill", s.auth(s.backfillStatus))
 	mux.HandleFunc("POST /ui/catalog/{media}/{name}/seasons/{season}/repairs/{review}/confirm", s.auth(s.confirmRepair))
 	mux.HandleFunc("POST /ui/migrations/plan", s.auth(s.migrationPlan))
 	mux.HandleFunc("POST /ui/migrations/apply", s.auth(s.migrationApply))
@@ -886,13 +889,7 @@ func (s *Service) backfill(w http.ResponseWriter, r *http.Request) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	v, e := s.App.Backfill(r.Context(), key, season, req.From, req.Through)
-	logOperationIssues(r.Context(), logger, v.Issues)
-	if e == nil {
-		logger.Info("manual range completion completed", "entry", key, "season", season, "from", req.From, "through", req.Through, "selected", len(v.Selected), "acquisitions", len(v.Acquisitions), "status", issueStatus(v.Issues))
-		logAcquisitionResults(r.Context(), logger, v.Acquisitions)
-	}
-	respond(w, v, e)
+	s.startBackfill(w, r, key, season, req, logger)
 }
 
 func (s *Service) confirmRepair(w http.ResponseWriter, r *http.Request) {

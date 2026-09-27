@@ -1645,6 +1645,57 @@ func TestManualSeasonCompletionDiscoversAndRepairsMissingTail(t *testing.T) {
 	}
 }
 
+func TestManualSeasonCompletionReportsStillUnresolvedEpisode(t *testing.T) {
+	f := newFixture(t, map[string]string{"f": "feed"})
+	w, err := catalog.CreateManagedAt(f.src, f.lib, "abcabc061", 2026, 1, catalog.Declaration{Sources: []string{"f"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(w.Path, "Season 01", "abcabc061 S01E02.mkv"), "two")
+	history := &fakeHistory{entries: mustReleases(t, "generic", []rss.Entry{entry("[G] abcabc061 S01E03 1080p", "hist3")})}
+	app, err := Open(Options{ConfigRoot: f.cfg, Fetcher: fakeFetcher{}, History: history, Backends: map[string]download.Backend{"c": f.client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := app.Backfill(context.Background(), w.Key, 1, 1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Acquisitions) != 1 {
+		t.Fatalf("acquisitions=%+v", out.Acquisitions)
+	}
+	found := false
+	for _, issue := range out.Issues {
+		if strings.Contains(issue.Message, "episodes [1]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing unresolved episode diagnostic: %+v", out.Issues)
+	}
+}
+
+func TestManualSeasonCompletionRepairsMissingHead(t *testing.T) {
+	f := newFixture(t, map[string]string{"f": "feed"})
+	w, err := catalog.CreateManagedAt(f.src, f.lib, "abcabc061", 2026, 1, catalog.Declaration{Sources: []string{"f"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(w.Path, "Season 01", "abcabc061 S01E02.mkv"), "two")
+	history := &fakeHistory{entries: mustReleases(t, "generic", []rss.Entry{entry("[G] abcabc061 S01E01 1080p", "hist1")})}
+	app, err := Open(Options{ConfigRoot: f.cfg, Fetcher: fakeFetcher{}, History: history, Backends: map[string]download.Backend{"c": f.client}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := app.Backfill(context.Background(), w.Key, 1, 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.calls) != 1 || len(history.calls[0].SourceMissing) != 1 || history.calls[0].SourceMissing[0].EpisodeStart != 1 || len(out.Acquisitions) != 1 {
+		t.Fatalf("head repair calls=%+v acquisitions=%+v", history.calls, out.Acquisitions)
+	}
+}
+
 func TestManualSeasonCompletionReportsSupportedProviderFailure(t *testing.T) {
 	f := newFixture(t, map[string]string{"f": "feed"})
 	w, err := catalog.CreateManagedAt(f.src, f.lib, "abcabc043", 2026, 1, catalog.Declaration{Sources: []string{"f"}})
@@ -1749,6 +1800,76 @@ func TestManualSeasonCompletionTreatsPartialHistoryFailureAsWarning(t *testing.T
 }
 
 type targetedFallbackProvider struct{ requests []provider.SearchRequest }
+
+type rangeRecallProvider struct {
+	requests []provider.SearchRequest
+	partial  bool
+}
+
+func (p *rangeRecallProvider) Name() string { return "mikan" }
+func (p *rangeRecallProvider) Capabilities() provider.Capability {
+	return provider.Capability{Search: true, Historical: true}
+}
+func (p *rangeRecallProvider) Poll(context.Context, string) ([]release.Release, error) {
+	return nil, nil
+}
+func (p *rangeRecallProvider) Search(_ context.Context, req provider.SearchRequest) ([]release.Release, error) {
+	p.requests = append(p.requests, req)
+	var values []release.Release
+	for _, target := range req.Targets {
+		if req.EpisodeStart > 0 && target.Episode != req.EpisodeStart {
+			continue
+		}
+		if p.partial && req.EpisodeStart == 0 && target.Episode != 1 {
+			continue
+		}
+		values = append(values, release.Release{
+			InfoHash:   fmt.Sprintf("%040d", target.Episode),
+			MediaName:  fmt.Sprintf("[G] Range Show [%02d].mkv", target.Episode),
+			Components: medianame.Components{Title: "Range Show", Season: 1, EpisodeStart: target.Episode, EpisodeEvidence: medianame.EpisodeEvidencePublication},
+		})
+	}
+	return values, nil
+}
+
+func TestProductionBackfillSearchesRangeOnceAndIncludesEpisodeOne(t *testing.T) {
+	p := &rangeRecallProvider{}
+	a := &App{}
+	rt := &runtimeSnapshot{sources: map[string]provider.Source{"mikan": {Config: configstore.ContentSource{ID: "mikan", Provider: "mikan", Enabled: true}, Provider: p}}}
+	missing := make([]episode.Key, 0, 13)
+	for ep := 1; ep <= 13; ep++ {
+		missing = append(missing, episode.Key{EntryKey: "series/show", Season: 1, EpisodeStart: ep, EpisodeEnd: ep})
+	}
+	values, err := a.searchBackfillSource(context.Background(), rt, "mikan", backfill.Request{
+		Queries:       []backfill.QueryEvidence{{Title: "Range Show", Origin: "entry_title", Tier: backfill.QueryFallback}},
+		SourceMissing: missing,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.requests) != 1 || p.requests[0].EpisodeStart != 0 || len(p.requests[0].Targets) != 13 || len(values) != 13 || values[0].Components.EpisodeStart != 1 {
+		t.Fatalf("range search requests=%+v values=%+v", p.requests, values)
+	}
+}
+
+func TestProductionBackfillOnlyTargetsUncoveredEpisodesAfterRangeSearch(t *testing.T) {
+	p := &rangeRecallProvider{partial: true}
+	a := &App{}
+	rt := &runtimeSnapshot{sources: map[string]provider.Source{"mikan": {Config: configstore.ContentSource{ID: "mikan", Provider: "mikan", Enabled: true}, Provider: p}}}
+	values, err := a.searchBackfillSource(context.Background(), rt, "mikan", backfill.Request{
+		Queries: []backfill.QueryEvidence{{Title: "Range Show", Origin: "entry_title", Tier: backfill.QueryFallback}},
+		SourceMissing: []episode.Key{
+			{EntryKey: "series/show", Season: 1, EpisodeStart: 1, EpisodeEnd: 1},
+			{EntryKey: "series/show", Season: 1, EpisodeStart: 2, EpisodeEnd: 2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.requests) != 2 || p.requests[0].EpisodeStart != 0 || p.requests[1].EpisodeStart != 2 || len(values) != 2 {
+		t.Fatalf("range fallback requests=%+v values=%+v", p.requests, values)
+	}
+}
 
 func (p *targetedFallbackProvider) Name() string { return "dmhy" }
 func (p *targetedFallbackProvider) Capabilities() provider.Capability {

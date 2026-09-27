@@ -290,6 +290,45 @@ func TestStrictJSONRejectsMultipleValues(t *testing.T) {
 	}
 }
 
+func TestManualBackfillReturnsJobBeforeSearchCompletes(t *testing.T) {
+	app, entry := webApp(t)
+	h := authenticatedHandler(t, &Service{App: app})
+	path := entryAPI(entry.Key) + "/seasons/1/backfill"
+	req := httptest.NewRequest("POST", path, strings.NewReader(`{"from":1,"through":3}`))
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+	start := httptest.NewRecorder()
+	h.ServeHTTP(start, req)
+	if start.Code != http.StatusAccepted {
+		t.Fatalf("start status=%d body=%s", start.Code, start.Body.String())
+	}
+	var started BackfillJob
+	if err := json.Unmarshal(start.Body.Bytes(), &started); err != nil || started.Status != "running" || started.From != 1 || started.Through != 3 {
+		t.Fatalf("started=%+v err=%v", started, err)
+	}
+	cancel() // Browser disconnects must not cancel the accepted job.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		status := httptest.NewRecorder()
+		h.ServeHTTP(status, httptest.NewRequest("GET", path, nil))
+		if status.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
+		}
+		var job BackfillJob
+		if err := json.Unmarshal(status.Body.Bytes(), &job); err != nil {
+			t.Fatal(err)
+		}
+		if job.Status != "running" {
+			if job.Result == nil || len(job.Result.State.Missing) == 0 || strings.Contains(job.Error, context.Canceled.Error()) {
+				t.Fatalf("finished job=%+v", job)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("accepted backfill job did not finish")
+}
+
 func TestReadinessReflectsApplicationConfigurationAndHealthStaysLive(t *testing.T) {
 	root := t.TempDir()
 	cfg := filepath.Join(root, "config")

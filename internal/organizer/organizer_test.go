@@ -316,6 +316,52 @@ func TestFullPlanningUsesBatchEpisodeDifferences(t *testing.T) {
 	}
 }
 
+func TestSeriesPlanningKeepsSeparateBracketedRevision(t *testing.T) {
+	root := t.TempDir()
+	source, target := filepath.Join(root, "source"), filepath.Join(root, "target")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{
+		"[Nekomoe kissaten][Kamiina Botan, Yoeru Sugata wa Yuri no Hana][08][1080p][JPSC].mp4",
+		"[Nekomoe kissaten][Kamiina Botan, Yoeru Sugata wa Yuri no Hana][08][1080p][JPSC][v2].mp4",
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(source, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := WithEmbyLayout(Config{Source: source, Target: target, Extensions: []string{".mp4"}}, EmbyLayout{LibraryRoot: target, Title: "上伊那ぼたん、酔へる姿は百合の花", Season: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary := filepath.Join(cfg.Target, "Season 01", "上伊那ぼたん、酔へる姿は百合の花 S01E08.mp4")
+	if err := os.MkdirAll(filepath.Dir(ordinary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(source, names[0]), ordinary); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(context.Background(), cfg)
+	if err != nil || len(plan.Items) != 2 {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+	seen := map[string]bool{}
+	for _, item := range plan.Items {
+		if strings.Contains(item.Source, "[v2]") {
+			if item.Action != ActionLink {
+				t.Fatalf("v2 item=%+v", item)
+			}
+		} else if item.Action != ActionExisting {
+			t.Fatalf("ordinary item=%+v", item)
+		}
+		seen[filepath.Base(item.Destination)] = true
+	}
+	if !seen["上伊那ぼたん、酔へる姿は百合の花 S01E08.mp4"] || !seen["上伊那ぼたん、酔へる姿は百合の花 S01E08 - v2.mp4"] {
+		t.Fatalf("destinations=%v", seen)
+	}
+}
+
 func TestMediaNamespaceRejectsRootsThatOnlyMeetAtFilesystemRoot(t *testing.T) {
 	if _, err := os.Stat("/dev/shm"); err != nil {
 		t.Skip("/dev/shm unavailable")

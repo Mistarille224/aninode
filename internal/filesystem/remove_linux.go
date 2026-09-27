@@ -14,8 +14,10 @@ const atRemovedir = 0x200
 
 // RemoveObservedLink removes exactly the observed regular-file directory entry
 // beneath root. Directory traversal is anchored with O_NOFOLLOW and the inode
-// is verified immediately before unlinkat, so a stale observation cannot cause
-// removal of a replacement file.
+// is verified immediately before unlinkat. Linux does not offer an
+// inode-conditional unlink: a concurrent replacement of the final name after
+// verification can still be removed. Callers must serialize writers to this
+// namespace when they need that stronger guarantee.
 func RemoveObservedLink(root, path string, expected ObjectID) error {
 	rel, err := relativeBelow(root, path)
 	if err != nil {
@@ -39,12 +41,9 @@ func RemoveObservedLink(root, path string, expected ObjectID) error {
 	if err != nil {
 		return fmt.Errorf("open removal candidate: %w", err)
 	}
+	defer syscall.Close(fd)
 	if err := verifyFD(fd, expected); err != nil {
-		syscall.Close(fd)
 		return fmt.Errorf("refuse to remove changed publication %s: %w", path, err)
-	}
-	if err := syscall.Close(fd); err != nil {
-		return err
 	}
 	if err := rawUnlinkat(parentFD, name); err != nil {
 		if errors.Is(err, syscall.ENOENT) {

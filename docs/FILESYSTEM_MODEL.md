@@ -6,7 +6,7 @@ This document is for changes to scanning, acquisition, organization, and migrati
 
 Global settings live in `/config`. A work's `.aninode.json` stores its title, source selection, filters, and output rules next to the source media. Availability, downloader ownership, and publication status are rebuilt from the filesystem and downloader APIs.
 
-Catalog request keys such as `series/<directory-name>` and `movie/<directory-name>` come from current directory names. Renaming a directory changes its key. Do not persist these keys as stable work IDs or add task IDs, inode values, or operation progress to declarations.
+Catalog request keys such as `series/<directory-name>` and `movie/<directory-name>` come from current directory names. Renaming a directory changes its key. Do not persist these keys as stable work IDs or add task IDs, inode values, or operation progress to declarations. The signed trash record is a temporary exception: it persists observed identities so permanent deletion cannot expand to a newly discovered file.
 
 Configuration and declaration writes use atomic file replacement. Catalog discovery is read-only: invalid JSON is reported rather than silently rewritten. Reconciliation creates missing declarations and updates folder projections.
 
@@ -46,6 +46,14 @@ The Linux implementation walks parent directories with no-follow semantics and l
 After proving the canonical link, reconciliation can remove other library links to the same source object within the managed TV/Movies roots and prune emptied directories. This allows title and projection changes to converge without deleting source media. A stale pathname alone is insufficient evidence for removal.
 
 Movie organization also supports versions, extras, ISO files, and opaque `BDMV`/`VIDEO_TS` trees. Disc trees are preserved as hardlinks; no playlist selection or remuxing occurs.
+
+## Work trash
+
+Deleting a work is an explicit, destructive exception to normal hardlink-only publication. The WebUI first previews the exact downloader tasks, source files, and library links. Confirmation writes a signed `.aninode-trash.json` beside the source declaration, which immediately removes the work from catalog discovery and blocks automatic source adoption. Files remain in place for seven days; matching downloader tasks are paused and may be resumed by restoring the work.
+
+The periodic cycle purges expired trash, and the WebUI can purge it early. Purge checks that the reviewed paths still name the same regular file objects, refuses new or changed files and overlapping tasks, removes downloader tasks without downloader-managed file deletion, then unlinks only the reviewed paths. The record remains on failure so a later run can retry without expanding the deletion set. Trash records are signed with a key under `/config/secrets`; keep that key when restoring a config backup that contains pending trash. A corrupt record is reported, while other valid expired records can still be purged.
+
+Linux `unlinkat` removes a directory entry by name and cannot condition deletion on an inode match. The implementation verifies an open file descriptor immediately before unlinking through an open parent directory, but a process outside aninode's operation lock can replace the final name during that interval. Do not describe this as an absolute guarantee against concurrent external writers.
 
 ## Migration
 

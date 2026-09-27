@@ -73,6 +73,8 @@ The default layout is shown below. `/media` corresponds to `MEDIA_ROOT` in `.env
 
 **Adopt existing tasks:** Open **迁移** to inspect downloader tasks and confirm their works and directories. Migration can ask the downloader to move data, so review the destination before applying it.
 
+**Delete a work:** Open the work in **Library**, review the deletion preview, and type its title to move it to **Trash**. Its download tasks pause immediately. Source files and library hardlinks stay in place for seven days, so disk space is not freed until permanent deletion. Restore it during that period or delete it permanently sooner. If files or tasks change, cleanup stops and reports the conflict instead of deleting newly found data.
+
 **Connect a media server:** Add `library/TV` and `library/Movies` as series and movie libraries in Emby or Plex.
 
 Local files are checked every minute by default; RSS is checked every 15 minutes. A manual RSS refresh only updates discovery results. Accepting works or running automation performs the corresponding download and organization actions.

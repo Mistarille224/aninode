@@ -1292,6 +1292,10 @@ func (a *App) MigrationApplyUnit(ctx context.Context, input MigrationUnitInput) 
 		return MigrationResult{}, managementErr(ErrorInvalid, err)
 	}
 	previewPlans, err := previewEngine.Scan(ctx)
+	previewPlans, trashErr := a.excludeTrashedMigrationPlans(ctx, previewPlans)
+	if trashErr != nil {
+		return MigrationResult{}, trashErr
+	}
 	preview := MigrationResult{Plans: previewPlans, Groups: groupMigrationPlans(rt.bundle, previewPlans)}
 	if err != nil {
 		return preview, err

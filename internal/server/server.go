@@ -56,6 +56,9 @@ type BackfillRequest struct {
 	Through int `json:"through"`
 }
 type EmptyRequest struct{}
+type TrashConfirmRequest struct {
+	Token string `json:"token"`
+}
 type MigrationApplyRequest struct {
 	Key       string                              `json:"key"`
 	EntryKey  string                              `json:"entry_key,omitempty"`
@@ -99,8 +102,13 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /ui/discovery/search", s.auth(s.searchDiscovery))
 	mux.HandleFunc("POST /ui/discovery/acquire", s.auth(s.acquireDiscovery))
 	mux.HandleFunc("GET /ui/catalog", s.auth(s.listEntries))
+	mux.HandleFunc("GET /ui/trash", s.auth(s.listTrash))
+	mux.HandleFunc("POST /ui/trash/{media}/{name}/restore", s.auth(s.restoreTrash))
+	mux.HandleFunc("POST /ui/trash/{media}/{name}/purge", s.auth(s.purgeTrash))
 	mux.HandleFunc("POST /ui/catalog/{media}", s.auth(s.createEntry))
 	mux.HandleFunc("GET /ui/catalog/{media}/{name}", s.auth(s.getEntry))
+	mux.HandleFunc("GET /ui/catalog/{media}/{name}/trash/preview", s.auth(s.previewTrash))
+	mux.HandleFunc("POST /ui/catalog/{media}/{name}/trash", s.auth(s.trashEntry))
 	mux.HandleFunc("PUT /ui/catalog/{media}/{name}/declaration", s.auth(s.putEntry))
 	mux.HandleFunc("POST /ui/catalog/{media}/{name}/preview", s.auth(s.previewEntry))
 	mux.HandleFunc("PUT /ui/catalog/{media}/{name}/folders/{folder}/projection", s.auth(s.putFolderProjection))
@@ -757,6 +765,85 @@ func (s *Service) getEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	v, e := s.App.GetEntry(r.Context(), key)
 	respond(w, v, e)
+}
+func (s *Service) previewTrash(w http.ResponseWriter, r *http.Request) {
+	if !s.requireApp(w) {
+		return
+	}
+	key, err := entryKeyFromRequest(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	v, e := s.App.PreviewTrash(r.Context(), key)
+	respond(w, v, e)
+}
+func (s *Service) trashEntry(w http.ResponseWriter, r *http.Request) {
+	if !s.requireApp(w) {
+		return
+	}
+	key, err := entryKeyFromRequest(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	var req TrashConfirmRequest
+	if err := decodeStrict(r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	v, e := s.App.TrashEntry(r.Context(), key, req.Token)
+	respond(w, trashSummary(v), e)
+}
+func (s *Service) listTrash(w http.ResponseWriter, r *http.Request) {
+	if !s.requireApp(w) {
+		return
+	}
+	v, e := s.App.ListTrash(r.Context())
+	if e != nil {
+		respond(w, nil, e)
+		return
+	}
+	out := make([]map[string]any, 0, len(v))
+	for _, entry := range v {
+		out = append(out, trashSummary(entry))
+	}
+	respond(w, out, nil)
+}
+func trashSummary(v application.TrashEntry) map[string]any {
+	return map[string]any{"key": v.Key, "title": v.Title, "media_type": v.MediaType, "status": v.Status, "created_at": v.CreatedAt, "expires_at": v.ExpiresAt, "source_files": v.SourceFiles, "library_files": v.LibraryFiles, "source_bytes": v.SourceBytes, "tasks": v.Tasks, "error": v.Error}
+}
+func (s *Service) restoreTrash(w http.ResponseWriter, r *http.Request) {
+	if !s.requireApp(w) {
+		return
+	}
+	key, err := entryKeyFromRequest(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := decodeStrict(r, &EmptyRequest{}); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	warnings, e := s.App.RestoreTrash(r.Context(), key)
+	respond(w, map[string]any{"restored": e == nil, "warnings": warnings}, e)
+}
+func (s *Service) purgeTrash(w http.ResponseWriter, r *http.Request) {
+	if !s.requireApp(w) {
+		return
+	}
+	key, err := entryKeyFromRequest(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := decodeStrict(r, &EmptyRequest{}); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	v, e := s.App.PurgeTrash(r.Context(), key)
+	respond(w, trashSummary(v), e)
 }
 func (s *Service) createEntry(w http.ResponseWriter, r *http.Request) {
 	if !s.requireApp(w) {

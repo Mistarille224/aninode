@@ -224,6 +224,11 @@ func discover(root, libraryRoot, mediaType string) (map[string]Entry, error) {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return result, fmt.Errorf("symlink is not a reliable declaration namespace entry: %s", path)
 		}
+		if _, err := os.Lstat(filepath.Join(path, ".aninode-trash.json")); err == nil {
+			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return result, err
+		}
 		d, err := ReadDeclaration(path)
 		if err != nil {
 			return result, fmt.Errorf("%s declaration: %w", path, err)
@@ -542,6 +547,11 @@ func AdoptStructuredSources(root string) ([]string, error) {
 		if childInfo.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
+		if _, err := os.Lstat(filepath.Join(path, ".aninode-trash.json")); err == nil {
+			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return adopted, err
+		}
 		if d, err := ReadDeclaration(path); err != nil {
 			return adopted, fmt.Errorf("%s declaration: %w", path, err)
 		} else if d != nil {
@@ -618,6 +628,11 @@ func AdoptStructuredMovies(root string) ([]string, error) {
 		}
 		if childInfo.Mode()&os.ModeSymlink != 0 {
 			continue
+		}
+		if _, err := os.Lstat(filepath.Join(path, ".aninode-trash.json")); err == nil {
+			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return adopted, err
 		}
 		if d, err := ReadDeclaration(path); err != nil {
 			return adopted, fmt.Errorf("%s declaration: %w", path, err)
@@ -1584,6 +1599,11 @@ func SyncFolderProjections(seriesRoot string) ([]string, error) {
 			continue
 		}
 		root := filepath.Join(seriesRoot, ent.Name())
+		if _, err := os.Lstat(filepath.Join(root, ".aninode-trash.json")); err == nil {
+			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return changed, err
+		}
 		d, err := ReadDeclaration(root)
 		if err != nil {
 			return changed, err

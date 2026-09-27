@@ -271,6 +271,10 @@ func (a *App) cycle(ctx context.Context, options CycleOptions) (CycleResult, err
 	if rt == nil {
 		return out, errors.New("runtime unavailable")
 	}
+	for _, purgeErr := range a.purgeExpiredTrashLocked(ctx) {
+		out.Issues = appendIssue(out.Issues, OperationIssue{Severity: "warning", Stage: "trash", Code: "purge_failed", Message: purgeErr.Error()})
+	}
+	rt = a.snapshot()
 	declarationChanges, err := a.ensureSourceDeclarations(rt)
 	if err != nil {
 		return out, err
@@ -653,6 +657,10 @@ func (a *App) migrate(ctx context.Context, apply bool, selectedGroups map[string
 	out = MigrationResult{}
 	var errs []error
 	plans, scanErr := engine.Scan(ctx)
+	plans, trashErr := a.excludeTrashedMigrationPlans(ctx, plans)
+	if trashErr != nil {
+		return out, trashErr
+	}
 	out.Plans = plans
 	out.Groups = groupMigrationPlans(rt.bundle, plans)
 	if scanErr != nil {

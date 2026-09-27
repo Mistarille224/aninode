@@ -27,9 +27,18 @@
   --theme-entries: #5f88df;
   --theme-discovery: #d4aa1d;
   --theme-migration: #a24f3d;
+	--theme-trash: #936352;
   --theme-settings: #62a8a7;
   --content-max: 1240px;
 }
+
+.trash-list { display: grid; gap: 12px; margin-top: 20px; }
+.trash-card { display: flex; justify-content: space-between; gap: 24px; padding: 20px; background: var(--paper); border: 1px solid var(--rule); }
+.trash-card h2 { margin: 5px 0; }
+.trash-card p { color: var(--ink-soft); margin-bottom: 8px; }
+.trash-card small { display: block; color: var(--ink-soft); }
+.trash-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 700px) { .trash-card { flex-direction: column; } .trash-actions { justify-content: flex-start; } }
 
 * {
   box-sizing: border-box;
@@ -339,6 +348,10 @@ input[type=checkbox]:disabled:checked {
   --nav-color: var(--theme-migration);
 }
 
+.sidebar nav button[data-view="trash"] {
+  --nav-color: var(--theme-trash);
+}
+
 .sidebar nav button[data-view="settings"] {
   --nav-color: var(--theme-settings);
 }
@@ -484,6 +497,7 @@ input[type=checkbox]:disabled:checked {
 [data-page="entries"] { --page-accent: var(--theme-entries); }
 [data-page="discovery"] { --page-accent: var(--theme-discovery); }
 [data-page="migration"] { --page-accent: var(--theme-migration); }
+[data-page="trash"] { --page-accent: var(--theme-trash); }
 [data-page="settings"] { --page-accent: var(--theme-settings); }
 
 .main .page-heading {

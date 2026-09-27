@@ -79,7 +79,14 @@ func (a *App) SearchDiscovery(ctx context.Context, sourceID, query string, limit
 		return DiscoveryResult{}, nameErr
 	}
 	resolver := discovery.Resolver{}
+	trash, trashErr := a.ListTrash(ctx)
+	if trashErr != nil {
+		return DiscoveryResult{}, trashErr
+	}
 	for _, group := range groups {
+		if groupInTrash(group, trash) {
+			continue
+		}
 		if resolved := resolver.Resolve(group, rt.bundle.Entries, names); resolved.Matched {
 			group.EntryKey = resolved.EntryKey
 		}
@@ -143,12 +150,16 @@ func (a *App) RSSDiscoveries(ctx context.Context, sourceID string, limit int) (R
 		return RSSDiscoveryResult{}, nameErr
 	}
 	resolver := discovery.Resolver{}
+	trash, trashErr := a.ListTrash(ctx)
+	if trashErr != nil {
+		return RSSDiscoveryResult{}, trashErr
+	}
 	for _, group := range groups {
 		// RSS discovery is intentionally series-only: it is a feed for finding
 		// shows the user may want to follow, not a generic release browser.
 		// Filter movies before applying the response limit so movie-shaped noise
 		// cannot crowd real series out of the discovery window.
-		if group.MediaType != catalog.MediaSeries || strings.TrimSpace(group.Title) == "" || resolver.Resolve(group, rt.bundle.Entries, names).Matched {
+		if group.MediaType != catalog.MediaSeries || strings.TrimSpace(group.Title) == "" || resolver.Resolve(group, rt.bundle.Entries, names).Matched || groupInTrash(group, trash) {
 			continue
 		}
 		group.Releases = cloneRSSReleases(group.Releases)
@@ -158,6 +169,15 @@ func (a *App) RSSDiscoveries(ctx context.Context, sourceID string, limit int) (R
 		out.Groups = out.Groups[:limit]
 	}
 	return out, nil
+}
+
+func groupInTrash(group discovery.Group, entries []TrashEntry) bool {
+	for _, entry := range entries {
+		if discovery.MatchEntry(catalog.Entry{MediaType: entry.MediaType, Title: entry.Title, Year: entry.Year}, naming.EntryEvidence{}, group.Title, group.Year) {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeNamingIndex(rt *runtimeSnapshot) (naming.Index, error) {

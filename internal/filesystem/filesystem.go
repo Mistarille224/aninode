@@ -24,14 +24,15 @@ type ObjectID struct {
 }
 
 // Metadata is physical filesystem metadata. It is observation, never user
-// intent, and must never be persisted as aninode state.
+// intent. Only a reviewed deletion manifest may persist it temporarily.
 type Metadata struct {
-	ID    ObjectID
-	Size  int64
-	Mode  fs.FileMode
-	NLink uint64
-	UID   uint32
-	GID   uint32
+	ID       ObjectID
+	Size     int64
+	Modified int64
+	Mode     fs.FileMode
+	NLink    uint64
+	UID      uint32
+	GID      uint32
 }
 
 func (m Metadata) IsRegular() bool { return m.Mode.IsRegular() }
@@ -86,7 +87,7 @@ func MetadataOf(info fs.FileInfo) (Metadata, bool) {
 	}
 	return Metadata{
 		ID:   ObjectID{Device: uint64(stat.Dev), Inode: uint64(stat.Ino)},
-		Size: info.Size(), Mode: info.Mode(), NLink: uint64(stat.Nlink),
+		Size: info.Size(), Modified: info.ModTime().UnixNano(), Mode: info.Mode(), NLink: uint64(stat.Nlink),
 		UID: stat.Uid, GID: stat.Gid,
 	}, true
 }
@@ -208,6 +209,8 @@ func ObserveTree(root string) (Snapshot, error) {
 		}
 		if info.Mode().IsRegular() {
 			s.addRegular(path, meta)
+		} else {
+			s.Issues = append(s.Issues, Issue{Path: path, Err: fmt.Errorf("unsupported filesystem object")})
 		}
 		return nil
 	})

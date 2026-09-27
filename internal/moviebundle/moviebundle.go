@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"aninode/internal/catalog"
 )
 
 type Kind string
@@ -532,14 +534,6 @@ func ExtraDirectory(k ExtraKind) string {
 	}
 }
 
-func MovieBase(title string, year int) string {
-	base := strings.TrimSpace(title)
-	if year > 0 {
-		base += fmt.Sprintf(" (%04d)", year)
-	}
-	return base
-}
-
 func ISOTargetName(title string, year int, a Asset) string {
 	lower := strings.ToLower(filepath.Base(a.Relative))
 	suffix := ".iso"
@@ -548,7 +542,7 @@ func ISOTargetName(title string, year int, a Asset) string {
 	} else if strings.HasSuffix(lower, ".dvd.iso") {
 		suffix = ".dvd.iso"
 	}
-	return MovieBase(title, year) + suffix
+	return catalog.SeriesDirName(title, year) + suffix
 }
 
 func ExtraTargetName(x MovieExtra) string {
@@ -557,7 +551,7 @@ func ExtraTargetName(x MovieExtra) string {
 
 // TargetName returns the Emby basename shared by a version and its sidecars.
 func TargetName(title string, year int, v Version, a Asset) string {
-	base := MovieBase(title, year)
+	base := catalog.SeriesDirName(title, year)
 	if v.Label != "" {
 		base += " - " + v.Label
 	}

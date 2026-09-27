@@ -733,7 +733,7 @@ func entryKeyFromRequest(r *http.Request) (string, error) {
 }
 func seasonFromRequest(r *http.Request) (int, error) {
 	season, err := strconv.Atoi(r.PathValue("season"))
-	if err != nil || season < 0 || season > 99 {
+	if err != nil || catalog.ValidateSeason(season) != nil {
 		return 0, errors.New("season must be 0-99")
 	}
 	return season, nil

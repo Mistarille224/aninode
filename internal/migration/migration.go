@@ -281,7 +281,7 @@ func migrationFilterOptions(observation migrationObservation) releasefilter.Opti
 }
 
 func (e Engine) observeClient(ctx context.Context, client string, ob observer) ([]migrationObservation, error) {
-	maps := mappingsForClient(e.Bundle, client)
+	maps := e.Bundle.ClientPathMappings(client)
 	if batch, ok := any(ob).(download.ObservationLister); ok {
 		values, err := batch.ListObservations(ctx)
 		if err != nil {
@@ -482,23 +482,15 @@ func parseMigrationName(name string) medianame.Parsed {
 }
 
 func taskBelongsToSource(task download.Task, files []download.File, source string) bool {
-	if pathWithin(source, task.SavePath) {
+	if filesystem.PathWithin(source, task.SavePath) {
 		return true
 	}
 	for _, file := range files {
-		if file.Wanted && pathWithin(source, file.Path) {
+		if file.Wanted && filesystem.PathWithin(source, file.Path) {
 			return true
 		}
 	}
 	return false
-}
-
-func pathWithin(root, path string) bool {
-	if strings.TrimSpace(root) == "" || strings.TrimSpace(path) == "" {
-		return false
-	}
-	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func (e Engine) matchTask(ctx context.Context, client string, observation migrationObservation, names naming.Index) Plan {
@@ -569,7 +561,7 @@ func (e Engine) matchTask(ctx context.Context, client string, observation migrat
 		return result(DecisionSkip, "task already resides in the matched Entry source namespace")
 	}
 	decision := DecisionRelocate
-	safe, known, detail := relocationDestinationSafe(task, observation.files, m.desired, mappingsForClient(e.Bundle, client))
+	safe, known, detail := relocationDestinationSafe(task, observation.files, m.desired, e.Bundle.ClientPathMappings(client))
 	if !known {
 		return result(DecisionUnknown, detail)
 	}
@@ -716,7 +708,7 @@ func (e Engine) PlanConfirmed(ctx context.Context, intent ConfirmedIntent) (Plan
 	if err != nil {
 		return Plan{}, fmt.Errorf("observe confirmed migration task: %w", err)
 	}
-	task, files = mapTaskFiles(task, files, mappingsForClient(e.Bundle, intent.Client))
+	task, files = mapTaskFiles(task, files, e.Bundle.ClientPathMappings(intent.Client))
 	if intent.InfoHash != "" && task.InfoHash != "" && !strings.EqualFold(intent.InfoHash, task.InfoHash) {
 		return Plan{}, fmt.Errorf("task infohash changed since confirmation: got %s", task.InfoHash)
 	}
@@ -757,7 +749,7 @@ func (e Engine) PlanConfirmed(ctx context.Context, intent ConfirmedIntent) (Plan
 	decision := DecisionAdopt
 	if !topology.Valid {
 		decision = DecisionRelocate
-		safe, known, detail := relocationDestinationSafe(task, files, match.desired, mappingsForClient(e.Bundle, intent.Client))
+		safe, known, detail := relocationDestinationSafe(task, files, match.desired, e.Bundle.ClientPathMappings(intent.Client))
 		if !known {
 			return Plan{}, errors.New(detail)
 		}
@@ -988,7 +980,7 @@ func (e Engine) relocationSavePath(w catalog.Entry, task download.Task, contentR
 	if !contentIsSave {
 		return e.entrySourceRoot(w)
 	}
-	placement, err := source.PlacementFor(source.Series, source.SingleFile, e.entrySourceRoot(w), "", fmt.Sprintf("Season %02d", sourceSeason))
+	placement, err := source.PlacementFor(source.Series, source.SingleFile, e.entrySourceRoot(w), "", catalog.SeasonDirName(sourceSeason))
 	if err != nil {
 		return ""
 	}
@@ -1045,7 +1037,7 @@ func (e Engine) Apply(ctx context.Context, requested Plan) (result Result, final
 	if err != nil {
 		return Result{Plan: requested}, fmt.Errorf("observe migration task: %w", err)
 	}
-	maps := mappingsForClient(e.Bundle, requested.Client)
+	maps := e.Bundle.ClientPathMappings(requested.Client)
 	task, files = mapTaskFiles(task, files, maps)
 	if requested.InfoHash != "" && task.InfoHash != "" && !strings.EqualFold(requested.InfoHash, task.InfoHash) {
 		return Result{Plan: requested}, errors.New("task infohash changed since confirmation")
@@ -1425,14 +1417,6 @@ func relocationDestinationSafe(task download.Task, files []download.File, destin
 		}
 	}
 	return true, true, ""
-}
-
-func mappingsForClient(b configstore.Bundle, client string) []download.PathMapping {
-	var out []download.PathMapping
-	for _, m := range b.Clients[client].PathMappings {
-		out = append(out, download.PathMapping{Remote: m.Remote, Local: m.Local})
-	}
-	return out
 }
 
 func normTitle(v string) string {

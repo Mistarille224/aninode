@@ -14,10 +14,7 @@ import (
 type CredentialLookup func(clientID string) (string, error)
 
 func FromConfig(config configstore.Client, credential string) (download.Backend, error) {
-	mappings := make([]download.PathMapping, 0, len(config.PathMappings))
-	for _, mapping := range config.PathMappings {
-		mappings = append(mappings, download.PathMapping{Remote: mapping.Remote, Local: mapping.Local})
-	}
+	mappings := config.DownloadPathMappings()
 	switch config.Type {
 	case "qbittorrent":
 		return qbittorrent.New(qbittorrent.Options{Name: config.ID, BaseURL: config.URL, Username: config.Username, Password: credential, PathMappings: mappings})

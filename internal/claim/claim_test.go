@@ -131,7 +131,7 @@ func TestResolveMapsRemoteTaskAndFilesIntoOneLocalNamespace(t *testing.T) {
 	remoteContainer := "/downloads/TV/abcabc149/[grpabc165] S01"
 	remoteFile := remoteContainer + "/abcabc149 S01E01.mkv"
 	files := []download.File{{Path: remoteFile, Size: 5, Wanted: true, Progress: 1}}
-	observed := observeFiles(files, mappings(b, "remote"))
+	observed := observeFiles(files, b.ClientPathMappings("remote"))
 	if len(observed.files) != 1 || observed.files[0].Path != localFile || len(observed.paths) != 1 || observed.paths[0] != localFile {
 		t.Fatalf("mapped observation leaked or duplicated paths: %+v", observed)
 	}

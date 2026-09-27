@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"aninode/internal/catalog"
 	"aninode/internal/medianame"
 )
 
@@ -55,6 +56,9 @@ func WithMovieLayout(cfg Config, layout MovieLayout) (Config, error) {
 	if title == "" {
 		return cfg, errors.New("movie title is empty after sanitizing")
 	}
+	if err := catalog.ValidateYear(layout.Year); err != nil {
+		return cfg, fmt.Errorf("movie %w", err)
+	}
 	cfg.movie = &movieConfig{title: title, year: layout.Year, overrides: layout.Overrides}
 	return cfg, nil
 }
@@ -70,24 +74,20 @@ func WithEmbyLayout(cfg Config, layout EmbyLayout) (Config, error) {
 	if layout.LibraryRoot == "" {
 		return cfg, errors.New("Emby library root is required")
 	}
-	if layout.Year < 0 || layout.Year > 9999 {
+	if err := catalog.ValidateYear(layout.Year); err != nil {
 		return cfg, errors.New("Emby year must be between 0 and 9999")
 	}
-	if layout.Season < 0 || layout.Season > 99 {
+	if err := catalog.ValidateSeason(layout.Season); err != nil {
 		return cfg, errors.New("Emby season must be between 0 and 99")
 	}
-	series := title
-	if layout.Year != 0 {
-		series += fmt.Sprintf(" (%04d)", layout.Year)
-	}
-	cfg.Target = filepath.Join(layout.LibraryRoot, series)
+	cfg.Target = filepath.Join(layout.LibraryRoot, catalog.SeriesDirName(title, layout.Year))
 	specials := make(map[string]SpecialMapping, len(layout.Specials))
 	for index, special := range layout.Specials {
 		source := strings.TrimSpace(special.Source)
 		if source == "" || filepath.Base(source) != source {
 			return cfg, fmt.Errorf("specials[%d] source must be a basename", index)
 		}
-		if special.Season < 0 || special.Season > 99 || special.Episode <= 0 {
+		if catalog.ValidateSeason(special.Season) != nil || special.Episode <= 0 {
 			return cfg, fmt.Errorf("specials[%d] requires season 0-99 and a positive episode", index)
 		}
 		key := strings.ToLower(source)
@@ -112,7 +112,7 @@ func resolveEmbyParsed(name string, cfg *embyConfig, parsed medianame.Parsed) (s
 	}
 	if special, exists := cfg.specials[strings.ToLower(name)]; exists {
 		filename := fmt.Sprintf("%s S%02dE%02d%s", cfg.title, special.Season, special.Episode, ext)
-		return filepath.Join(fmt.Sprintf("Season %02d", special.Season), filename), true, nil
+		return filepath.Join(catalog.SeasonDirName(special.Season), filename), true, nil
 	}
 	if parsed.EpisodeStart <= 0 {
 		return "", false, nil
@@ -142,7 +142,7 @@ func resolveEmbyParsed(name string, cfg *embyConfig, parsed medianame.Parsed) (s
 			if episode <= 0 {
 				return 0, 0, fmt.Errorf("projected episode %d is not positive", episode)
 			}
-			if cfg.projection.TargetSeason < 0 || cfg.projection.TargetSeason > 99 {
+			if catalog.ValidateSeason(cfg.projection.TargetSeason) != nil {
 				return 0, 0, fmt.Errorf("projected season %d is outside 0-99", cfg.projection.TargetSeason)
 			}
 			return cfg.projection.TargetSeason, episode, nil
@@ -173,7 +173,7 @@ func resolveEmbyParsed(name string, cfg *embyConfig, parsed medianame.Parsed) (s
 		version = fmt.Sprintf(" - v%d", parsed.Version)
 	}
 	filename := fmt.Sprintf("%s S%02d%s%s%s", cfg.title, targetSeason, episode, version, ext)
-	return filepath.Join(fmt.Sprintf("Season %02d", targetSeason), filename), true, nil
+	return filepath.Join(catalog.SeasonDirName(targetSeason), filename), true, nil
 }
 
 func safeMediaName(value string) string {

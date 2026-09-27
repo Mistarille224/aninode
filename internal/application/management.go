@@ -184,6 +184,13 @@ func declarationOf(w catalog.Entry) EntryDeclaration {
 	enabled := w.Enabled
 	return EntryDeclaration{Title: w.Title, Year: w.Year, Enabled: &enabled, Sources: append([]string(nil), w.Sources...), Filters: w.Filters, Specials: append([]catalog.SpecialMapping(nil), w.Specials...), Output: w.Output, Blacklist: append([]string{}, w.Blacklist...), Movie: w.Movie, Folders: maps.Clone(w.FolderProjections)}
 }
+
+func declarationFromInput(mediaType string, d EntryDeclaration) catalog.Declaration {
+	result := catalog.NewInitialDeclaration(catalog.InitialDeclarationInput{MediaType: mediaType, CanonicalTitle: d.Title})
+	result.Year, result.Enabled, result.Sources, result.Filters, result.Specials, result.Output, result.Blacklist, result.Movie, result.Folders = d.Year, d.Enabled, d.Sources, d.Filters, append([]catalog.SpecialMapping(nil), d.Specials...), d.Output, d.Blacklist, d.Movie, d.Folders
+	return result
+}
+
 func viewOf(b configstore.Bundle, w catalog.Entry) EntryView {
 	return EntryView{Entry: w, Declaration: declarationOf(w), FilterOptions: releasefilter.Options{}.WithFilters(w.Filters)}
 }
@@ -635,9 +642,6 @@ func (a *App) DeleteSource(ctx context.Context, id string) error {
 func (a *App) CreateEntry(ctx context.Context, mediaType string, season int, d EntryDeclaration) (EntryView, error) {
 	var out EntryView
 	err := a.withOperation(ctx, func() error {
-		if mediaType != catalog.MediaSeries && mediaType != catalog.MediaMovie {
-			return managementErr(ErrorInvalid, fmt.Errorf("unsupported media type %q", mediaType))
-		}
 		if err := a.reloadRuntime(); err != nil {
 			return err
 		}
@@ -646,14 +650,8 @@ func (a *App) CreateEntry(ctx context.Context, mediaType string, season int, d E
 			return errors.New("runtime unavailable")
 		}
 		title := strings.TrimSpace(d.Title)
-		if err := catalog.ValidateDirectoryTitle(title); err != nil {
+		if err := catalog.ValidateEntryIdentity(mediaType, title, d.Year, season); err != nil {
 			return managementErr(ErrorInvalid, fmt.Errorf("entry %w", err))
-		}
-		if d.Year < 0 {
-			return managementErr(ErrorInvalid, errors.New("entry year must not be negative"))
-		}
-		if mediaType == catalog.MediaSeries && (season < 0 || season > 99) {
-			return managementErr(ErrorInvalid, errors.New("season must be 0-99"))
 		}
 		root, targetRoot := rt.bundle.Organizer.SeriesSource(), rt.bundle.Organizer.SeriesTarget()
 		if mediaType == catalog.MediaMovie {
@@ -665,8 +663,7 @@ func (a *App) CreateEntry(ctx context.Context, mediaType string, season int, d E
 		} else if old != nil {
 			return managementErr(ErrorConflict, fmt.Errorf("entry declaration already exists at %s", path))
 		}
-		next := catalog.NewInitialDeclaration(catalog.InitialDeclarationInput{MediaType: mediaType, CanonicalTitle: title})
-		next.Year, next.Enabled, next.Sources, next.Filters, next.Specials, next.Output, next.Blacklist, next.Movie, next.Folders = d.Year, d.Enabled, d.Sources, d.Filters, append([]catalog.SpecialMapping(nil), d.Specials...), d.Output, d.Blacklist, d.Movie, d.Folders
+		next := declarationFromInput(mediaType, d)
 		sourceEntryExisted := false
 		if _, err := os.Stat(path); err == nil {
 			sourceEntryExisted = true
@@ -704,7 +701,7 @@ func (a *App) CreateEntry(ctx context.Context, mediaType string, season int, d E
 			return managementErr(ErrorInvalid, err)
 		}
 		if mediaType == catalog.MediaSeries {
-			seasonName := fmt.Sprintf("Season %02d", season)
+			seasonName := catalog.SeasonDirName(season)
 			if err := mkdir(filepath.Join(path, seasonName)); err != nil {
 				cleanup()
 				return managementErr(ErrorInvalid, err)
@@ -774,14 +771,10 @@ func (a *App) PutEntry(ctx context.Context, id string, d EntryDeclaration) (Entr
 			return errors.Join(restoreErr, a.reloadRuntime())
 		}
 		title := strings.TrimSpace(d.Title)
-		if err := catalog.ValidateDirectoryTitle(title); err != nil {
+		if err := catalog.ValidateEntryIdentity(old.MediaType, title, d.Year, 0); err != nil {
 			return managementErr(ErrorInvalid, fmt.Errorf("entry %w", err))
 		}
-		if d.Year < 0 {
-			return managementErr(ErrorInvalid, errors.New("entry year must not be negative"))
-		}
-		year := d.Year
-		next := catalog.Declaration{Title: title, Year: year, Enabled: d.Enabled, Sources: d.Sources, Filters: d.Filters, Specials: append([]catalog.SpecialMapping(nil), d.Specials...), Output: d.Output, Blacklist: d.Blacklist, Movie: d.Movie, Folders: d.Folders}
+		next := declarationFromInput(old.MediaType, d)
 		if err := catalog.WriteDeclaration(old.DeclarationPath, next); err != nil {
 			return managementErr(ErrorInvalid, err)
 		}
@@ -1276,14 +1269,8 @@ func (a *App) MigrationApplyUnit(ctx context.Context, input MigrationUnitInput) 
 	if len(input.Tasks) == 0 {
 		return MigrationResult{}, managementErr(ErrorConflict, errors.New("migration preview is stale; check download tasks again"))
 	}
-	if input.MediaType != catalog.MediaSeries && input.MediaType != catalog.MediaMovie {
-		return MigrationResult{}, managementErr(ErrorInvalid, errors.New("media_type must be series or movie"))
-	}
-	if input.MediaType == catalog.MediaSeries && (input.Season < 0 || input.Season > 99) {
-		return MigrationResult{}, managementErr(ErrorInvalid, errors.New("season must be 0-99"))
-	}
-	if input.Year < 0 || input.Year > 9999 || input.Title == "." || input.Title == ".." || strings.ContainsAny(input.Title, `/\\`) {
-		return MigrationResult{}, managementErr(ErrorInvalid, errors.New("invalid migration title or year"))
+	if err := catalog.ValidateEntryIdentity(input.MediaType, input.Title, input.Year, input.Season); err != nil {
+		return MigrationResult{}, managementErr(ErrorInvalid, fmt.Errorf("invalid migration entry: %w", err))
 	}
 
 	a.operationMu.Lock()

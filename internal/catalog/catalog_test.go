@@ -86,6 +86,22 @@ func TestDeclarationRejectsRemovedPolicyField(t *testing.T) {
 	}
 }
 
+func TestReadDeclarationUsesWriteValidationWithoutRewriting(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".aninode.json")
+	data := []byte(`{"title":"../escape","year":2026}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadDeclaration(root); err == nil {
+		t.Fatal("unsafe declaration title was accepted on read")
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil || string(stored) != string(data) {
+		t.Fatalf("read rewrote invalid declaration: %q, %v", stored, err)
+	}
+}
+
 func TestNewInitialDeclarationDefaultsByMediaType(t *testing.T) {
 	series := NewInitialDeclaration(InitialDeclarationInput{MediaType: MediaSeries, CanonicalTitle: " abcabc145 "})
 	if series.Title != "abcabc145" || series.Output.Title != "" || series.Blacklist == nil {
@@ -94,6 +110,33 @@ func TestNewInitialDeclarationDefaultsByMediaType(t *testing.T) {
 	movie := NewInitialDeclaration(InitialDeclarationInput{MediaType: MediaMovie, CanonicalTitle: "abcabc defdef"})
 	if movie.Title != "abcabc defdef" || movie.Output.Title != "" || movie.Blacklist == nil {
 		t.Fatalf("movie=%+v", movie)
+	}
+}
+
+func TestEntryIdentityUsesOneRangeAndPathPolicy(t *testing.T) {
+	for _, mediaType := range []string{MediaSeries, MediaMovie} {
+		if err := ValidateEntryIdentity(mediaType, " Confirmed title ", 9999, 0); err != nil {
+			t.Fatalf("valid %s identity: %v", mediaType, err)
+		}
+		for _, year := range []int{-1, 10000} {
+			if err := ValidateEntryIdentity(mediaType, "Confirmed title", year, 0); err == nil {
+				t.Fatalf("%s accepted year %d", mediaType, year)
+			}
+		}
+		for _, title := range []string{"../escape", `dir\escape`} {
+			if err := ValidateEntryIdentity(mediaType, title, 2026, 0); err == nil {
+				t.Fatalf("%s accepted unsafe title %q", mediaType, title)
+			}
+		}
+	}
+	if err := ValidateEntryIdentity(MediaSeries, "Confirmed title", 2026, 100); err == nil {
+		t.Fatal("series accepted season 100")
+	}
+	if err := ValidateEntryIdentity("other", "Confirmed title", 2026, 0); err == nil {
+		t.Fatal("unsupported media type accepted")
+	}
+	if got := SeasonDirName(2); got != "Season 02" {
+		t.Fatalf("season directory = %q", got)
 	}
 }
 

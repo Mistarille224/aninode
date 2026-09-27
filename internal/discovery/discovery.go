@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"aninode/internal/catalog"
+	"aninode/internal/collection"
 	"aninode/internal/naming"
 	"aninode/internal/release"
 	"aninode/internal/releasefilter"
@@ -76,9 +77,9 @@ func GroupReleases(values []release.Release, sourceID string) []Group {
 		}
 		g.Releases = append(g.Releases, v)
 		if identity, err := release.AcquisitionIdentity(v); err == nil {
-			g.AcquisitionIDs = appendUnique(g.AcquisitionIDs, identity.ID)
+			g.AcquisitionIDs = collection.AppendUnique(g.AcquisitionIDs, identity.ID)
 		}
-		g.SourceIDs = appendUnique(g.SourceIDs, sourceID)
+		g.SourceIDs = collection.AppendUnique(g.SourceIDs, sourceID)
 	}
 	out := make([]Group, 0, len(order))
 	for _, k := range order {
@@ -127,10 +128,10 @@ func MergeGroups(groups []Group) []Group {
 			}
 		}
 		for _, sourceID := range value.SourceIDs {
-			g.SourceIDs = appendUnique(g.SourceIDs, sourceID)
+			g.SourceIDs = collection.AppendUnique(g.SourceIDs, sourceID)
 		}
 		for _, x := range value.AcquisitionIDs {
-			g.AcquisitionIDs = appendUnique(g.AcquisitionIDs, x)
+			g.AcquisitionIDs = collection.AppendUnique(g.AcquisitionIDs, x)
 		}
 	}
 	out := make([]Group, 0, len(order))
@@ -156,13 +157,4 @@ func Unmatched(values []release.Release, sourceID string, entries map[string]cat
 		}
 	}
 	return out
-}
-
-func appendUnique(v []string, s string) []string {
-	for _, x := range v {
-		if x == s {
-			return v
-		}
-	}
-	return append(v, s)
 }

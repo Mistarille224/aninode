@@ -42,7 +42,6 @@
       "Edit {name}": "编辑{name}",
       "Enable": "启用",
       "Enable a content source to discover titles": "先启用一个内容来源即可发现作品",
-      "Enter Title": "请输入作品名称",
       "Episode": "集数",
       "Episode mapping needs attention": "集数映射需要处理",
       "error": "错误",
@@ -447,7 +446,6 @@
       "leave blank to keep": "留空保留",
       "Matched blacklist": "命中跳过规则",
       "Matched blacklist:": "命中跳过规则：",
-      "Media library name": "媒体库名称",
       "Migration complete: processed {count} download tasks": "迁移完成：已处理 {count} 个下载任务",
       "Migration completed, but rescan failed": "迁移已执行，但重扫失败",
       "Migration completed, but rescan failed: {error}": "迁移已执行，但重扫失败：{error}",
@@ -536,7 +534,7 @@
       "Welcome back": "欢迎回来",
       "will not be added to the media library": "不会加入媒体库",
       "Working directories saved": "工作目录已保存",
-      "Year must be a non-negative integer": "年份必须是非负整数",
+      "Year must be an integer from 0 to 9999": "年份必须是 0 到 9999 的整数",
       "{name} is a manual candidate retained for this missing episode. After confirmation it will be sent immediately to the downloader; if the file, rules, or candidate state has changed, the backend will reject the stale confirmation.": "{name} 是为该缺集保留的人工候选。确认后会立即发送到下载器；如果文件、规则或候选状态已改变，系统会拒绝过期的确认。"
     }
   }

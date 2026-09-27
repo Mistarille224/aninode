@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"aninode/internal/catalog"
+	"aninode/internal/download"
 	"aninode/internal/jsonfile"
 	"aninode/internal/organizer"
 )
@@ -30,10 +31,16 @@ type Client struct {
 	PathMappings  []PathMapping `json:"path_mappings,omitempty"`
 	Enabled       bool          `json:"enabled"`
 }
-type PathMapping struct {
-	Remote string `json:"remote"`
-	Local  string `json:"local"`
+type PathMapping = download.PathMapping
+
+func (c Client) DownloadPathMappings() []download.PathMapping {
+	return append([]download.PathMapping(nil), c.PathMappings...)
 }
+
+func (b Bundle) ClientPathMappings(client string) []download.PathMapping {
+	return b.Clients[client].DownloadPathMappings()
+}
+
 type RSSSource struct {
 	Name string `json:"name,omitempty"`
 	URL  string `json:"url"`
@@ -196,10 +203,10 @@ func (b Bundle) OrganizerForPreview(id string, season int) (organizer.Config, er
 		if w.MediaType == catalog.MediaMovie {
 			observed = filepath.Join(b.Organizer.MovieSource(), catalog.SeriesDirName(w.Title, w.Year))
 		} else {
-			observed = filepath.Join(b.Organizer.SeriesSource(), catalog.SeriesDirName(w.Title, w.Year), fmt.Sprintf("Season %02d", season))
+			observed = filepath.Join(b.Organizer.SeriesSource(), catalog.SeriesDirName(w.Title, w.Year), catalog.SeasonDirName(season))
 		}
 	} else if w.MediaType != catalog.MediaMovie {
-		observed = filepath.Join(observed, fmt.Sprintf("Season %02d", season))
+		observed = filepath.Join(observed, catalog.SeasonDirName(season))
 	}
 	return b.organizerForWork(id, season, observed)
 }
@@ -288,7 +295,7 @@ func (b Bundle) organizerForWork(id string, parseSeason int, observedSource stri
 		return organizer.WithMovieLayout(cfg, organizer.MovieLayout{Title: catalog.OutputTitle(w), Year: w.Year, Overrides: w.Movie.Classify})
 	}
 	resolveSeason := func(season int) (int, error) {
-		if season < 0 || season > 99 {
+		if err := catalog.ValidateSeason(season); err != nil {
 			return 0, fmt.Errorf("season %d is outside supported range 0-99", season)
 		}
 		return season, nil

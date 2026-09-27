@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestPathWithinRejectsSiblingAndParentTraversal(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "media")
+	if !PathWithin(root, filepath.Join(root, "TV", "episode.mkv")) {
+		t.Fatal("child path was rejected")
+	}
+	if !PathInside(root, filepath.Join(root, "TV")) || PathInside(root, root) {
+		t.Fatal("strict child containment is incorrect")
+	}
+	for _, path := range []string{"", root + "-other/file.mkv", filepath.Join(root, "..", "outside.mkv")} {
+		if PathWithin(root, path) {
+			t.Fatalf("path outside root accepted: %q", path)
+		}
+	}
+}
+
 func TestSnapshotCollapsesHardlinksIntoOneObject(t *testing.T) {
 	root := t.TempDir()
 	a := filepath.Join(root, "a.mkv")

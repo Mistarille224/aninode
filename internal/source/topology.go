@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"aninode/internal/download"
+	"aninode/internal/filesystem"
 )
 
 var ErrNoWantedTaskFiles = errors.New("no wanted task files")
@@ -65,7 +66,7 @@ func Observe(task download.Task, files []download.File, mappings []download.Path
 			return observation, nil
 		}
 		for _, path := range paths {
-			if !within(content, path) || samePath(content, path) {
+			if !filesystem.PathInside(content, path) {
 				return Observation{}, fmt.Errorf("task file %q is outside content path %q", path, content)
 			}
 		}
@@ -248,11 +249,3 @@ func escapes(rel string) bool {
 }
 
 func samePath(a, b string) bool { return filepath.Clean(a) == filepath.Clean(b) }
-
-func within(root, path string) bool {
-	if root == "" || path == "" {
-		return false
-	}
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
-	return err == nil && !escapes(rel)
-}

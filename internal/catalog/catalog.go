@@ -231,9 +231,6 @@ func discover(root, libraryRoot, mediaType string) (map[string]Entry, error) {
 		if d == nil {
 			continue
 		}
-		if strings.TrimSpace(d.Title) == "" {
-			return result, fmt.Errorf("%s declaration title is required", path)
-		}
 		key := mediaType + "/" + entry.Name()
 		item := EntryFromDeclaration(*d, mediaType, key, path, libraryRoot)
 		if mediaType == MediaSeries {
@@ -732,7 +729,7 @@ func AdoptUndeclaredAt(libraryRoot, declarationRoot string) ([]string, error) {
 		}
 		folders := map[string]FolderProjection{}
 		for _, season := range seasons {
-			folders[fmt.Sprintf("Season %02d", season)] = FolderProjection{Season: season}
+			folders[SeasonDirName(season)] = FolderProjection{Season: season}
 		}
 		initial, err := DefaultDeclarationForLocalAdoption(path, strings.TrimSpace(match[1]), folders, MediaSeries)
 		initial.Year, _ = strconv.Atoi(match[2])
@@ -763,14 +760,7 @@ func ReadDeclaration(seriesPath string) (*Declaration, error) {
 	if err := jsonfile.Decode(data, &s); err != nil {
 		return nil, err
 	}
-	if err := s.Filters.Validate(); err != nil {
-		return nil, err
-	}
-	s.Filters = s.Filters.Normalize()
-	if err := ValidateSpecialMappings(s.Specials); err != nil {
-		return nil, err
-	}
-	if err := ValidateOutput(s.Output); err != nil {
+	if err := prepareDeclaration(&s); err != nil {
 		return nil, err
 	}
 	if err := ValidateBlacklist(s.Blacklist); err != nil {
@@ -851,6 +841,9 @@ func prepareDeclaration(s *Declaration) error {
 	if err := ValidateDirectoryTitle(s.Title); err != nil {
 		return err
 	}
+	if err := ValidateYear(s.Year); err != nil {
+		return err
+	}
 	if err := s.Filters.Validate(); err != nil {
 		return err
 	}
@@ -893,7 +886,7 @@ func ValidateSpecialMappings(values []SpecialMapping) error {
 		if clean == ".." || strings.HasPrefix(clean, "../") {
 			return fmt.Errorf("specials[%d].source must stay inside the entry", i)
 		}
-		if value.Season < 0 || value.Season > 99 || value.Episode <= 0 {
+		if ValidateSeason(value.Season) != nil || value.Episode <= 0 {
 			return fmt.Errorf("specials[%d] requires season 0-99 and a positive episode", i)
 		}
 		key := strings.ToLower(clean)
@@ -913,8 +906,38 @@ func ValidateDirectoryTitle(title string) error {
 	if title == "" {
 		return errors.New("title is required")
 	}
-	if title == "." || title == ".." || filepath.IsAbs(title) || filepath.Base(title) != title || strings.ContainsAny(title, "\x00\r\n\t") {
+	if title == "." || title == ".." || filepath.IsAbs(title) || filepath.Base(title) != title || strings.ContainsAny(title, "/\\\x00\r\n\t") {
 		return errors.New("title must be a safe directory title")
+	}
+	return nil
+}
+
+func ValidateYear(year int) error {
+	if year < 0 || year > 9999 {
+		return errors.New("year must be 0-9999")
+	}
+	return nil
+}
+
+func ValidateSeason(season int) error {
+	if season < 0 || season > 99 {
+		return errors.New("season must be 0-99")
+	}
+	return nil
+}
+
+func ValidateEntryIdentity(mediaType, title string, year, season int) error {
+	if mediaType != MediaSeries && mediaType != MediaMovie {
+		return fmt.Errorf("unsupported media type %q", mediaType)
+	}
+	if err := ValidateDirectoryTitle(title); err != nil {
+		return err
+	}
+	if err := ValidateYear(year); err != nil {
+		return err
+	}
+	if mediaType == MediaSeries {
+		return ValidateSeason(season)
 	}
 	return nil
 }
@@ -924,7 +947,7 @@ func ValidateFolderProjections(v map[string]FolderProjection) error {
 		if strings.TrimSpace(name) == "" || name == "." || name == ".." || filepath.Base(name) != name {
 			return fmt.Errorf("folders[%q] must be a direct child directory name", name)
 		}
-		if rule.Season < 0 || rule.Season > 99 {
+		if ValidateSeason(rule.Season) != nil {
 			return fmt.Errorf("folders[%q].season must be 0-99", name)
 		}
 	}
@@ -1010,27 +1033,23 @@ func SeriesDirName(title string, year int) string {
 	return name
 }
 
+func SeasonDirName(season int) string { return fmt.Sprintf("Season %02d", season) }
+
 func CreateManaged(root, title string, year, season int, side Declaration) (Entry, error) {
 	return CreateManagedAt(root, root, title, year, season, side)
 }
 
 func CreateManagedAt(declarationRoot, libraryRoot, title string, year, season int, side Declaration) (Entry, error) {
-	if err := ValidateDirectoryTitle(title); err != nil {
+	if err := ValidateEntryIdentity(MediaSeries, title, year, season); err != nil {
 		return Entry{}, err
-	}
-	if year < 0 {
-		return Entry{}, errors.New("year must not be negative")
-	}
-	if season < 0 || season > 99 {
-		return Entry{}, errors.New("season must be 0-99")
 	}
 	name := SeriesDirName(title, year)
 	series := filepath.Join(declarationRoot, name)
 	side.Title, side.Year = strings.TrimSpace(title), year
-	if err := os.MkdirAll(filepath.Join(series, fmt.Sprintf("Season %02d", season)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(series, SeasonDirName(season)), 0o755); err != nil {
 		return Entry{}, err
 	}
-	if err := os.MkdirAll(filepath.Join(libraryRoot, name, fmt.Sprintf("Season %02d", season)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(libraryRoot, name, SeasonDirName(season)), 0o755); err != nil {
 		return Entry{}, err
 	}
 	if err := WriteDeclaration(series, side); err != nil {
@@ -1053,11 +1072,8 @@ func CreateManagedMovie(root, title string, year int, side Declaration) (Entry, 
 }
 
 func CreateManagedMovieAt(declarationRoot, libraryRoot, title string, year int, side Declaration) (Entry, error) {
-	if err := ValidateDirectoryTitle(title); err != nil {
+	if err := ValidateEntryIdentity(MediaMovie, title, year, 0); err != nil {
 		return Entry{}, err
-	}
-	if year < 0 {
-		return Entry{}, errors.New("year must not be negative")
 	}
 	name := SeriesDirName(title, year)
 	path := filepath.Join(declarationRoot, name)
@@ -1084,14 +1100,14 @@ func CreateManagedMovieAt(declarationRoot, libraryRoot, title string, year int, 
 }
 
 func EnsureSeason(w Entry, season int) (bool, error) {
-	if season < 0 || season > 99 {
-		return false, errors.New("season must be 0-99")
+	if err := ValidateSeason(season); err != nil {
+		return false, err
 	}
 	declaration := w.DeclarationPath
 	if declaration == "" {
 		declaration = w.Path
 	}
-	p := filepath.Join(declaration, fmt.Sprintf("Season %02d", season))
+	p := filepath.Join(declaration, SeasonDirName(season))
 	if info, err := os.Lstat(p); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return false, fmt.Errorf("season namespace is not a real directory: %s", p)
@@ -1106,7 +1122,7 @@ func EnsureSeason(w Entry, season int) (bool, error) {
 	if err := os.MkdirAll(p, 0o755); err != nil {
 		return false, err
 	}
-	return true, os.MkdirAll(filepath.Join(w.Path, fmt.Sprintf("Season %02d", season)), 0o755)
+	return true, os.MkdirAll(filepath.Join(w.Path, SeasonDirName(season)), 0o755)
 }
 
 type FolderProjectionEvidence struct {

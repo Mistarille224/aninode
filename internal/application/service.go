@@ -16,6 +16,7 @@ import (
 	"aninode/internal/backfill"
 	"aninode/internal/candidate"
 	"aninode/internal/catalog"
+	"aninode/internal/collection"
 	"aninode/internal/completeness"
 	"aninode/internal/configstore"
 	"aninode/internal/discovery"
@@ -475,7 +476,7 @@ func (a *App) ingestSources(ctx context.Context, rt *runtimeSnapshot) (map[strin
 func (a *App) discoverEntries(rt *runtimeSnapshot, bySource map[string][]release.Release, names naming.Index, out *CycleResult) (bool, []string) {
 	for sourceID, releases := range bySource {
 		for _, group := range discovery.Unmatched(releases, sourceID, rt.bundle.Entries, names) {
-			out.DiscoveredEntries = appendUnique(out.DiscoveredEntries, group.Title)
+			out.DiscoveredEntries = collection.AppendUnique(out.DiscoveredEntries, group.Title)
 		}
 	}
 	return false, nil
@@ -511,7 +512,7 @@ func (a *App) ensureCandidateSeasons(bundle configstore.Bundle, plan candidate.P
 			continue
 		}
 		if created {
-			out.CreatedSeasons = appendUnique(out.CreatedSeasons, fmt.Sprintf("%s/Season %02d", w.Key, value.SourceEpisode.Season))
+			out.CreatedSeasons = collection.AppendUnique(out.CreatedSeasons, w.Key+"/"+catalog.SeasonDirName(value.SourceEpisode.Season))
 			changed = true
 		}
 	}
@@ -545,15 +546,6 @@ func classifyCandidates(plan candidate.Plan, out *CycleResult) {
 			out.SkippedReleases = append(out.SkippedReleases, value)
 		}
 	}
-}
-
-func appendUnique(values []string, value string) []string {
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
-	}
-	return append(values, value)
 }
 
 func hasSeason(value catalog.Entry, season int) bool {

@@ -399,6 +399,26 @@ func within(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// PathWithin checks lexical containment using absolute paths. Callers that
+// require physical containment must also reject symlink traversal separately.
+func PathWithin(root, path string) bool {
+	if strings.TrimSpace(root) == "" || strings.TrimSpace(path) == "" {
+		return false
+	}
+	rootAbs, rootErr := filepath.Abs(root)
+	pathAbs, pathErr := filepath.Abs(path)
+	return rootErr == nil && pathErr == nil && within(rootAbs, pathAbs)
+}
+
+func PathInside(root, path string) bool {
+	if !PathWithin(root, path) {
+		return false
+	}
+	rootAbs, _ := filepath.Abs(root)
+	pathAbs, _ := filepath.Abs(path)
+	return filepath.Clean(rootAbs) != filepath.Clean(pathAbs)
+}
+
 // ObserveDirectory reads one structural directory without walking it or
 // following a symlink. It is suitable for cheap readiness checks.
 func ObserveDirectory(path string) (Metadata, error) {

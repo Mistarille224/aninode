@@ -188,6 +188,22 @@ func TestPutEntryRoundTripsOutputAndBlacklistAndSearchesOutputTitle(t *testing.T
 	}
 }
 
+func TestCreateEntryUsesOneIdentityForSourceAndLibrary(t *testing.T) {
+	f := newFixture(t, nil)
+	app := service(t, f, fakeFetcher{})
+	view, err := app.CreateEntry(context.Background(), catalog.MediaSeries, 1, EntryDeclaration{Title: "Confirmed title", Year: 2026})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Confirmed title (2026)"
+	if filepath.Base(view.Entry.DeclarationPath) != want || filepath.Base(view.Entry.Path) != want || view.Declaration.Output.Title != "" {
+		t.Fatalf("source and library diverged: %+v", view)
+	}
+	if _, err := app.CreateEntry(context.Background(), catalog.MediaSeries, 1, EntryDeclaration{Title: "Later title", Year: 10000}); err == nil {
+		t.Fatal("create entry accepted a year outside the shared range")
+	}
+}
+
 func TestPutEntryImmediatelyConvergesPublication(t *testing.T) {
 	app, f, w := managedEntryApp(t)
 	view, err := app.GetEntry(context.Background(), w.Key)

@@ -312,7 +312,7 @@ func (r Runner) ensureTaskTopology(ctx context.Context, i acquisitionIntent, bac
 	if len(files) == 0 {
 		return nil
 	}
-	mappings := clientMappings(r.Bundle, i.Client)
+	mappings := r.Bundle.ClientPathMappings(i.Client)
 	observation, err := source.Observe(task, files, mappings)
 	if errors.Is(err, source.ErrNoWantedTaskFiles) {
 		return nil
@@ -443,12 +443,8 @@ func (r Runner) savePath(i acquisitionIntent) (string, error) {
 		return "", err
 	}
 	save := placement.SavePath
-	if cc, ok := r.Bundle.Clients[i.Client]; ok {
-		var ms []download.PathMapping
-		for _, m := range cc.PathMappings {
-			ms = append(ms, download.PathMapping{Remote: m.Remote, Local: m.Local})
-		}
-		save = download.UnmapPath(save, ms)
+	if _, ok := r.Bundle.Clients[i.Client]; ok {
+		save = download.UnmapPath(save, r.Bundle.ClientPathMappings(i.Client))
 	}
 	return save, nil
 }
@@ -491,12 +487,12 @@ func (r Runner) placement(i acquisitionIntent, shape source.Shape) (source.Place
 			// filename parser anything about directory names.
 			placementSeason = i.Target.Season
 		}
-		if placementSeason < 0 || placementSeason > 99 {
+		if catalog.ValidateSeason(placementSeason) != nil {
 			return source.Placement{}, fmt.Errorf("source placement season %d is outside supported range", placementSeason)
 		}
 		// Source topology describes the release as downloaded. Target season
 		// projection is a separate namespace concern and may intentionally differ.
-		container = fmt.Sprintf("Season %02d", placementSeason)
+		container = catalog.SeasonDirName(placementSeason)
 	}
 	return source.PlacementFor(media, shape, entryRoot, r.Bundle.Organizer.MovieSource(), container)
 }
@@ -539,7 +535,7 @@ func taskOutsideManagedSource(bundle configstore.Bundle, client string, task dow
 	if strings.TrimSpace(task.ContentPath) == "" {
 		return false
 	}
-	path := download.MapPath(task.ContentPath, clientMappings(bundle, client))
+	path := download.MapPath(task.ContentPath, bundle.ClientPathMappings(client))
 	root := filepath.Clean(bundle.Organizer.Source)
 	path = filepath.Clean(path)
 	rel, err := filepath.Rel(root, path)
@@ -646,7 +642,7 @@ func (r Runner) ReconcilePublicationsWithGraph(ctx context.Context, physical obs
 				out = append(out, res)
 				continue
 			}
-			maps := clientMappings(r.Bundle, client)
+			maps := r.Bundle.ClientPathMappings(client)
 			observation, err := source.Observe(task, files, maps)
 			if err != nil {
 				res.Decision, res.Error = "unknown", err.Error()
@@ -824,12 +820,4 @@ func (r Runner) ReconcileLocalEntryWithGraph(ctx context.Context, physical obser
 	}
 	r.Bundle.Entries = map[string]catalog.Entry{key: e}
 	return r.reconcileLocalSources(ctx, physical)
-}
-
-func clientMappings(b configstore.Bundle, client string) []download.PathMapping {
-	var mappings []download.PathMapping
-	for _, value := range b.Clients[client].PathMappings {
-		mappings = append(mappings, download.PathMapping{Remote: value.Remote, Local: value.Local})
-	}
-	return mappings
 }

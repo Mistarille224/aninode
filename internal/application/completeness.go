@@ -12,6 +12,7 @@ import (
 	"aninode/internal/backfill"
 	"aninode/internal/candidate"
 	"aninode/internal/catalog"
+	"aninode/internal/collection"
 	"aninode/internal/completeness"
 	"aninode/internal/configstore"
 	"aninode/internal/episode"
@@ -474,7 +475,7 @@ func buildBackfillSelection(ctx context.Context, b configstore.Bundle, w catalog
 		if reason := candidate.ReviewReason(value, evidence); reason != "" {
 			value.Reason = "manual review: " + reason
 			review.Candidates = append(review.Candidates, value)
-			warnings = appendUnique(warnings, fmt.Sprintf("backfill %s S%02dE%02d: %s", w.Key, value.Episode.Season, value.Episode.EpisodeStart, reason))
+			warnings = collection.AppendUnique(warnings, fmt.Sprintf("backfill %s S%02dE%02d: %s", w.Key, value.Episode.Season, value.Episode.EpisodeStart, reason))
 			continue
 		}
 		automatic.Candidates = append(automatic.Candidates, value)
@@ -638,7 +639,7 @@ func (a *App) runBackfill(ctx context.Context, rt *runtimeSnapshot, states []com
 		}
 		plans, e := buildBackfillSelection(ctx, rt.bundle, w, st.Season, missing, bySource, evidence)
 		for _, warning := range plans.Warnings {
-			warnings = appendUnique(warnings, warning)
+			warnings = collection.AppendUnique(warnings, warning)
 		}
 		if e != nil {
 			warnings = append(warnings, fmt.Sprintf("backfill %s season %d: %v", w.Key, st.Season, e))
@@ -660,7 +661,7 @@ func (a *App) runBackfill(ctx context.Context, rt *runtimeSnapshot, states []com
 		for _, value := range reviewCandidates {
 			review := newRepairReviewObserved(w, value, evidence)
 			reviews = append(reviews, review)
-			warnings = appendUnique(warnings, fmt.Sprintf("backfill %s season %d episode %d: low-confidence candidate %q requires manual confirmation", w.Key, st.Season, value.Episode.EpisodeStart, value.Release.MediaName))
+			warnings = collection.AppendUnique(warnings, fmt.Sprintf("backfill %s season %d episode %d: low-confidence candidate %q requires manual confirmation", w.Key, st.Season, value.Episode.EpisodeStart, value.Release.MediaName))
 		}
 	}
 	a.reconcileRepairReviews(reviews, rt.bundle.Entries, inv)
@@ -722,7 +723,7 @@ func (a *App) runManualBackfill(ctx context.Context, rt *runtimeSnapshot, entryK
 	}
 	plans, err := buildBackfillSelection(ctx, rt.bundle, w, season, missing, bySource, evidence)
 	for _, warning := range plans.Warnings {
-		warnings = appendUnique(warnings, warning)
+		warnings = collection.AppendUnique(warnings, warning)
 	}
 	if err != nil {
 		return st, nil, nil, nil, warnings, err

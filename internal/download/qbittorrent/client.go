@@ -19,6 +19,7 @@ import (
 
 	"aninode/internal/acquisition"
 	"aninode/internal/download"
+	"aninode/internal/filesystem"
 )
 
 type Client struct {
@@ -197,22 +198,17 @@ func taskFilePath(task download.Task, name string) (string, error) {
 	if samePath(saveCandidate, content) {
 		return content, nil
 	}
-	if pathInside(content, saveCandidate) {
+	if filesystem.PathInside(content, saveCandidate) {
 		return saveCandidate, nil
 	}
 	contentCandidate := filepath.Join(content, clean)
-	if pathInside(content, contentCandidate) {
+	if filesystem.PathInside(content, contentCandidate) {
 		return contentCandidate, nil
 	}
 	return "", fmt.Errorf("qBittorrent file name %q escapes task content path %q", name, task.ContentPath)
 }
 
 func samePath(a, b string) bool { return filepath.Clean(a) == filepath.Clean(b) }
-
-func pathInside(root, path string) bool {
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
 
 func (client *Client) Pause(ctx context.Context, id string) error {
 	return client.commandAcrossAPIVersions(ctx, "stop", "pause", id)

@@ -65,6 +65,8 @@ Discovery reads cached RSS results and matches them against the current catalog.
 
 ## Code and checks
 
+Keep shared rules in their owning packages: `catalog` validates work identity and formats work/season directory names; `configstore` exposes downloader path mappings; `filesystem.PathWithin` and `filesystem.PathInside` provide lexical containment. Call these rules from discovery, editing, migration, acquisition, and publication instead of repeating their implementations.
+
 | Area | Package |
 |---|---|
 | Observation and safe file operations | `internal/filesystem`, `internal/observation` |

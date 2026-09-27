@@ -277,7 +277,7 @@ func (planner *filePlanner) planPaths(ctx context.Context, paths []string, requi
 			planErrs = append(planErrs, err)
 			break
 		}
-		if requireWithinRoot && (!withinRoot(planner.cfg.Source, sourcePath) || !realPathWithinRoot(planner.cfg.Source, sourcePath)) {
+		if requireWithinRoot && (!filesystem.PathWithin(planner.cfg.Source, sourcePath) || !realPathWithinRoot(planner.cfg.Source, sourcePath)) {
 			planErrs = append(planErrs, fmt.Errorf("completed file escapes configured source: %s", sourcePath))
 			continue
 		}
@@ -467,7 +467,7 @@ func ApplyPlan(ctx context.Context, cfg Config, plan Plan) (Result, error) {
 			// while executing ActionLink remain errors below.
 			result.Conflicts++
 		case ActionLink:
-			if !withinRoot(cfg.Source, item.Source) || !withinRoot(cfg.Target, item.Destination) {
+			if !filesystem.PathWithin(cfg.Source, item.Source) || !filesystem.PathWithin(cfg.Target, item.Destination) {
 				applyErrs = append(applyErrs, fmt.Errorf(
 					"plan item escapes configured roots: %s -> %s",
 					item.Source,
@@ -542,7 +542,7 @@ func convergePublicationAliases(ctx context.Context, cfg Config, plan Plan, libr
 		return 0, nil
 	}
 	publicationRoot := filepath.Clean(cfg.PublicationRoot)
-	if library.Root == "" || !withinRoot(library.Root, publicationRoot) {
+	if library.Root == "" || !filesystem.PathWithin(library.Root, publicationRoot) {
 		return 0, fmt.Errorf("publication root %s is outside observed library root %s", publicationRoot, library.Root)
 	}
 	desired := map[filesystem.ObjectID]map[string]bool{}
@@ -596,7 +596,7 @@ func convergePublicationAliases(ctx context.Context, cfg Config, plan Plan, libr
 		}
 		for _, stale := range object.Paths {
 			stale = filepath.Clean(stale)
-			if destinations[stale] || !withinRoot(publicationRoot, stale) {
+			if destinations[stale] || !filesystem.PathWithin(publicationRoot, stale) {
 				continue
 			}
 			if err := filesystem.RemoveObservedLink(publicationRoot, stale, objectID); err != nil {
@@ -634,16 +634,6 @@ func resolveRelative(name string, cfg Config) (string, bool, error) {
 	return resolveEmby(name, cfg.emby)
 }
 
-func withinRoot(root, path string) bool {
-	root, rootErr := filepath.Abs(root)
-	path, pathErr := filepath.Abs(path)
-	if rootErr != nil || pathErr != nil {
-		return false
-	}
-	relative, err := filepath.Rel(root, path)
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
-}
-
 // realPathWithinRoot rejects symlink traversal anywhere below the configured
 // root. Missing suffix components are allowed for destinations that are about
 // to be created. This deliberately matches the observation graph rule:
@@ -654,7 +644,7 @@ func realPathWithinRoot(root, path string) bool {
 		return false
 	}
 	pathAbs, err := filepath.Abs(path)
-	if err != nil || !withinRoot(rootAbs, pathAbs) {
+	if err != nil || !filesystem.PathWithin(rootAbs, pathAbs) {
 		return false
 	}
 	rootInfo, err := os.Lstat(rootAbs)

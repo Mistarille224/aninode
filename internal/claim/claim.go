@@ -148,7 +148,7 @@ func Resolve(ctx context.Context, b configstore.Bundle, client string, task down
 
 func ResolveWithIndex(ctx context.Context, b configstore.Bundle, index SourceIndex, client string, task download.Task, files []download.File) Claim {
 	c := Claim{Client: client, Task: task, Status: Unknown}
-	maps := mappings(b, client)
+	maps := b.ClientPathMappings(client)
 	observed := observeFiles(files, maps)
 	localTask := task
 	localTask.SavePath = download.MapPath(task.SavePath, maps)
@@ -469,13 +469,6 @@ func targetEpisode(entryKey string, source episode.Key, analysis medianame.Batch
 	return episode.Key{EntryKey: entryKey, Season: targetSeason, EpisodeStart: targetStart, EpisodeEnd: targetEnd, Special: targetSeason == 0}, targetSeason >= 0 && targetStart > 0 && targetEnd >= targetStart
 }
 
-func mappings(b configstore.Bundle, client string) []download.PathMapping {
-	var out []download.PathMapping
-	for _, m := range b.Clients[client].PathMappings {
-		out = append(out, download.PathMapping{Remote: m.Remote, Local: m.Local})
-	}
-	return out
-}
 func sortedEntries(m map[string]catalog.Entry) []catalog.Entry {
 	out := make([]catalog.Entry, 0, len(m))
 	for _, w := range m {

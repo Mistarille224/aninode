@@ -364,11 +364,12 @@ func (a *App) TrashEntry(ctx context.Context, key, token string) (TrashEntry, er
 		if err != nil {
 			return err
 		}
-		if token == "" || token != trashToken(plan) {
+		planToken := trashToken(plan)
+		if token != "" && token != planToken {
 			return managementErr(ErrorConflict, errors.New("delete preview changed; review it again"))
 		}
 		created := a.clock().UTC()
-		result = TrashEntry{Key: key, Token: token, Title: plan.entry.Title, Year: plan.entry.Year, MediaType: plan.entry.MediaType, Status: "trashed", CreatedAt: created, ExpiresAt: created.Add(trashRetention), SourceFiles: len(plan.source), LibraryFiles: len(plan.library), SourceBytes: plan.bytes, Tasks: plan.tasks, SourceRoot: plan.entry.DeclarationPath, LibraryRoot: plan.entry.Path, Source: plan.source, Library: plan.library}
+		result = TrashEntry{Key: key, Token: planToken, Title: plan.entry.Title, Year: plan.entry.Year, MediaType: plan.entry.MediaType, Status: "trashed", CreatedAt: created, ExpiresAt: created.Add(trashRetention), SourceFiles: len(plan.source), LibraryFiles: len(plan.library), SourceBytes: plan.bytes, Tasks: plan.tasks, SourceRoot: plan.entry.DeclarationPath, LibraryRoot: plan.entry.Path, Source: plan.source, Library: plan.library}
 		if err := a.saveTrash(&result, true); err != nil {
 			return managementErr(ErrorConflict, err)
 		}

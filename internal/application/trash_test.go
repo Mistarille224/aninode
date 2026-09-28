@@ -97,6 +97,17 @@ func TestTrashRestoreAndPurge(t *testing.T) {
 	}
 }
 
+func TestTrashWithoutPreview(t *testing.T) {
+	app, _, w, _, _ := trashFixture(t)
+	item, err := app.TrashEntry(context.Background(), w.Key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Token == "" || item.SourceFiles != 1 || item.LibraryFiles != 1 {
+		t.Fatalf("trash entry: %+v", item)
+	}
+}
+
 func TestTrashRefusesChangedFileAndCrossWorkTask(t *testing.T) {
 	app, f, w, source, _ := trashFixture(t)
 	ctx := context.Background()

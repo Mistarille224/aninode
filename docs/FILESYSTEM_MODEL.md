@@ -49,7 +49,7 @@ Movie organization also supports versions, extras, ISO files, and opaque `BDMV`/
 
 ## Work trash
 
-Deleting a work is an explicit, destructive exception to normal hardlink-only publication. The WebUI first previews the exact downloader tasks, source files, and library links. Confirmation writes a signed `.aninode-trash.json` beside the source declaration, which immediately removes the work from catalog discovery and blocks automatic source adoption. Files remain in place for seven days; matching downloader tasks are paused and may be resumed by restoring the work.
+Deleting a work is an explicit, destructive exception to normal hardlink-only publication. The WebUI confirms the action first, then inspects the exact downloader tasks, source files, and library links once. It writes a signed `.aninode-trash.json` beside the source declaration, which immediately removes the work from catalog discovery and blocks automatic source adoption. Files remain in place for seven days; matching downloader tasks are paused and may be resumed by restoring the work.
 
 The periodic cycle purges expired trash, and the WebUI can purge it early. Purge checks that the reviewed paths still name the same regular file objects, refuses new or changed files and overlapping tasks, removes downloader tasks without downloader-managed file deletion, then unlinks only the reviewed paths. The record remains on failure so a later run can retry without expanding the deletion set. Trash records are signed with a key under `/config/secrets`; keep that key when restoring a config backup that contains pending trash. A corrupt record is reported, while other valid expired records can still be purged.
 

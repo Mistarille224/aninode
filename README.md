@@ -73,7 +73,7 @@ The default layout is shown below. `/media` corresponds to `MEDIA_ROOT` in `.env
 
 **Adopt existing tasks:** Open **迁移** to inspect downloader tasks and confirm their works and directories. Migration can ask the downloader to move data, so review the destination before applying it.
 
-**Delete a work:** Open the work in **Library**, review the deletion preview, and type its title to move it to **Trash**. Its download tasks pause immediately. Source files and library hardlinks stay in place for seven days, so disk space is not freed until permanent deletion. Restore it during that period or delete it permanently sooner. If files or tasks change, cleanup stops and reports the conflict instead of deleting newly found data.
+**Delete a work:** Open the work in **Library**, choose **Delete work**, and confirm moving it to **Trash**. The affected files and downloader tasks are checked and recorded during confirmation. Its download tasks pause immediately. Source files and library hardlinks stay in place for seven days, so disk space is not freed until permanent deletion. Restore it during that period or delete it permanently sooner. If files or tasks change, cleanup stops and reports the conflict instead of deleting newly found data.
 
 **Connect a media server:** Add `library/TV` and `library/Movies` as series and movie libraries in Emby or Plex.
 

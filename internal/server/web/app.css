@@ -32,14 +32,6 @@
   --content-max: 1240px;
 }
 
-.trash-list { display: grid; gap: 12px; margin-top: 20px; }
-.trash-card { display: flex; justify-content: space-between; gap: 24px; padding: 20px; background: var(--paper); border: 1px solid var(--rule); }
-.trash-card h2 { margin: 5px 0; }
-.trash-card p { color: var(--ink-soft); margin-bottom: 8px; }
-.trash-card small { display: block; color: var(--ink-soft); }
-.trash-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-@media (max-width: 700px) { .trash-card { flex-direction: column; } .trash-actions { justify-content: flex-start; } }
-
 * {
   box-sizing: border-box;
 }
@@ -736,6 +728,34 @@ input[type=checkbox]:disabled:checked {
   box-shadow: inset 2px 0 var(--attention);
 }
 
+.record-row.trashed {
+  grid-template-columns: 44px minmax(180px, 1.2fr) 72px 82px minmax(190px, 1fr) auto;
+  background: color-mix(in srgb, var(--attention-soft), transparent 42%);
+  box-shadow: inset 3px 0 var(--attention);
+}
+
+.record-row.trashed:hover {
+  background: color-mix(in srgb, var(--attention-soft), transparent 42%);
+}
+
+.record-state.trashed i {
+  background: var(--attention);
+}
+
+.record-state.trashed strong {
+  color: var(--attention);
+}
+
+.record-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.record-actions button {
+  white-space: nowrap;
+}
+
 .record-no {
   color: var(--ink-faint);
   font-size: .66rem;
@@ -815,6 +835,31 @@ input[type=checkbox]:disabled:checked {
 .record-open {
   color: var(--ink-faint);
   text-align: right;
+}
+
+.delete-confirmation > p {
+  color: var(--ink-soft);
+}
+
+.delete-impact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0 12px;
+}
+
+.delete-impact span {
+  padding: 11px 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: .75rem;
+}
+
+.delete-impact strong {
+  display: block;
+  color: var(--ink);
+  font-size: .95rem;
 }
 
 /* Record detail */
@@ -2195,6 +2240,10 @@ dt {
     grid-template-columns: 40px minmax(200px, 1fr) 76px minmax(150px, .7fr) 20px;
   }
 
+  .record-row.trashed {
+    grid-template-columns: 40px minmax(180px, 1fr) 70px minmax(170px, .8fr) auto;
+  }
+
   .record-scope {
     display: none;
   }
@@ -2306,6 +2355,14 @@ dt {
     grid-template-columns: 36px minmax(0, 1fr) minmax(140px, .55fr) 20px;
   }
 
+  .record-row.trashed {
+    grid-template-columns: 36px minmax(0, 1fr) minmax(170px, auto);
+  }
+
+  .record-row.trashed .record-state {
+    display: none;
+  }
+
   .record-type,
   .record-scope {
     display: none;
@@ -2392,6 +2449,21 @@ dt {
     grid-template-columns: 30px minmax(0, 1fr) 18px;
     gap: 8px;
     min-height: 64px;
+  }
+
+  .record-row.trashed {
+    grid-template-columns: 30px minmax(0, 1fr);
+    padding: 12px 8px 12px 0;
+  }
+
+  .record-row.trashed .record-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+    padding-top: 6px;
+  }
+
+  .delete-impact {
+    grid-template-columns: 1fr;
   }
 
   .record-state {

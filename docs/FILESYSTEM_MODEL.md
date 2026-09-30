@@ -45,7 +45,7 @@ The Linux implementation walks parent directories with no-follow semantics and l
 
 After proving the canonical link, reconciliation can remove other library links to the same source object within the managed TV/Movies roots and prune emptied directories. This allows title and projection changes to converge without deleting source media. A stale pathname alone is insufficient evidence for removal.
 
-Movie organization also supports versions, extras, ISO files, and opaque `BDMV`/`VIDEO_TS` trees. Disc trees are preserved as hardlinks; no playlist selection or remuxing occurs.
+Movie organization also supports versions, extras, ISO files, and opaque `BDMV`/`VIDEO_TS` trees. A uniquely identified disc tree may sit below release-group wrapper directories; publication removes those wrappers, preserves canonical `BDMV`/`VIDEO_TS` and sibling `CERTIFICATE` trees as hardlinks, and gives external subtitle/audio sidecars the movie basename expected by Emby. No playlist selection or remuxing occurs. A second video or disc carrier remains an explicit conflict rather than being guessed.
 
 ## Work trash
 

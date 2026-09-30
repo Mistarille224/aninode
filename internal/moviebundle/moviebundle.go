@@ -72,8 +72,10 @@ type MovieExtra struct {
 	Asset Asset     `json:"asset"`
 }
 type OpaqueTree struct {
-	Root   string  `json:"root"`
-	Assets []Asset `json:"assets"`
+	Root      string  `json:"root"`
+	Container string  `json:"container,omitempty"`
+	Assets    []Asset `json:"assets"`
+	Sidecars  []Asset `json:"sidecars,omitempty"`
 }
 type Bundle struct {
 	Recognized bool         `json:"recognized"`
@@ -142,6 +144,13 @@ func AnalyzePaths(root string, paths []string, opts Options) (Bundle, error) {
 		parts := strings.Split(rel, "/")
 		for i, p := range parts[:len(parts)-1] {
 			if strings.EqualFold(p, "BDMV") || strings.EqualFold(p, "VIDEO_TS") {
+				// A directory name alone is weak evidence. The format control file
+				// makes this a real disc tree instead of an unrelated folder.
+				base := filepath.Base(rel)
+				if (strings.EqualFold(p, "BDMV") && !strings.EqualFold(base, "index.bdmv")) ||
+					(strings.EqualFold(p, "VIDEO_TS") && !strings.EqualFold(base, "VIDEO_TS.IFO")) {
+					break
+				}
 				k := BluRay
 				if strings.EqualFold(p, "VIDEO_TS") {
 					k = DVD
@@ -168,22 +177,35 @@ func AnalyzePaths(root string, paths []string, opts Options) (Bundle, error) {
 		for _, r := range roots {
 			rootInfo = r
 		}
-		var assets []Asset
-		var outside bool
+		var assets, sidecars []Asset
 		prefix := rootInfo.rel + "/"
+		container := pathDir(rootInfo.rel)
+		certificatePrefix := strings.ToLower(joinSlash(container, "CERTIFICATE") + "/")
 		for _, a := range ordinary {
-			if strings.HasPrefix(a.Relative, prefix) {
+			ext := strings.ToLower(filepath.Ext(a.Relative))
+			if strings.HasPrefix(a.Relative, prefix) ||
+				(rootInfo.kind == BluRay && strings.HasPrefix(strings.ToLower(a.Relative), certificatePrefix)) {
 				a.Kind = Opaque
 				assets = append(assets, a)
-			} else if filepath.Base(a.Relative) != ".aninode.json" {
-				outside = true
+			} else if filepath.Base(a.Relative) == ".aninode.json" {
+				continue
+			} else if isSubtitle(ext) || isAudio(ext) {
+				if isSubtitle(ext) {
+					a.Kind = Subtitle
+				} else {
+					a.Kind = Audio
+				}
+				sidecars = append(sidecars, a)
+			} else if isVideo(ext) {
+				return conflict(b, fmt.Sprintf("movie video %q exists outside the opaque disc tree", a.Relative)), nil
+			} else {
+				a.Kind = Excluded
+				a.Detail = "non-media ancillary asset outside opaque disc tree"
+				b.Excluded = append(b.Excluded, a)
 			}
 		}
-		if outside {
-			return conflict(b, "ordinary movie assets and an opaque disc tree were detected together"), nil
-		}
 		b.Kind = rootInfo.kind
-		b.OpaqueTree = &OpaqueTree{Root: rootInfo.rel, Assets: assets}
+		b.OpaqueTree = &OpaqueTree{Root: rootInfo.rel, Container: container, Assets: assets, Sidecars: sidecars}
 		if len(assets) == 0 {
 			return conflict(b, "opaque disc tree contains no regular files"), nil
 		}
@@ -192,11 +214,28 @@ func AnalyzePaths(root string, paths []string, opts Options) (Bundle, error) {
 	ordinary = filterDeclaration(ordinary)
 	if len(iso) > 0 {
 		b.Recognized = true
-		if len(iso) != 1 || len(ordinary) > 0 {
+		if len(iso) != 1 {
 			return conflict(b, "ISO and ordinary movie assets were detected together"), nil
 		}
+		var sidecars []Asset
+		for _, a := range ordinary {
+			ext := strings.ToLower(filepath.Ext(a.Relative))
+			if isSubtitle(ext) || isAudio(ext) {
+				if isSubtitle(ext) {
+					a.Kind = Subtitle
+				} else {
+					a.Kind = Audio
+				}
+				sidecars = append(sidecars, a)
+			} else if isVideo(ext) {
+				return conflict(b, fmt.Sprintf("movie video %q exists beside the ISO main carrier", a.Relative)), nil
+			} else {
+				a.Kind, a.Detail = Excluded, "non-media ancillary asset beside ISO"
+				b.Excluded = append(b.Excluded, a)
+			}
+		}
 		b.Kind = ISO
-		b.OpaqueTree = &OpaqueTree{Assets: iso}
+		b.OpaqueTree = &OpaqueTree{Assets: iso, Sidecars: sidecars}
 		return b, nil
 	}
 	return classifyFiles(b, ordinary, opts), nil
@@ -273,6 +312,9 @@ func classifyFiles(b Bundle, assets []Asset, opts Options) Bundle {
 	}
 	for _, s := range sidecars {
 		indexes := associated(s, b.Versions)
+		if len(indexes) == 0 && len(b.Versions) == 1 {
+			indexes = []int{0}
+		}
 		if len(indexes) != 1 {
 			s.Kind = Unknown
 			s.Detail = "sidecar cannot be associated with exactly one movie version"
@@ -314,7 +356,7 @@ func classifyFiles(b Bundle, assets []Asset, opts Options) Bundle {
 }
 
 func isVideo(e string) bool {
-	return map[string]bool{".mkv": true, ".mp4": true, ".avi": true, ".mov": true, ".m4v": true, ".ts": true, ".webm": true}[e]
+	return map[string]bool{".mkv": true, ".mp4": true, ".avi": true, ".mov": true, ".m4v": true, ".ts": true, ".m2ts": true, ".mts": true, ".webm": true, ".wmv": true, ".mpg": true, ".mpeg": true}[e]
 }
 func isSubtitle(e string) bool {
 	return map[string]bool{".srt": true, ".ass": true, ".ssa": true, ".vtt": true, ".sub": true, ".sup": true}[e]
@@ -547,6 +589,42 @@ func ISOTargetName(title string, year int, a Asset) string {
 
 func ExtraTargetName(x MovieExtra) string {
 	return filepath.Join(ExtraDirectory(x.Kind), filepath.Base(x.Asset.Relative))
+}
+
+// OpaqueTargetRelative removes release-group wrapper directories while keeping
+// the canonical BDMV/VIDEO_TS and optional CERTIFICATE trees intact.
+func OpaqueTargetRelative(tree *OpaqueTree, a Asset) string {
+	if tree == nil || tree.Container == "" || tree.Container == "." {
+		return filepath.FromSlash(a.Relative)
+	}
+	prefix := strings.TrimSuffix(filepath.ToSlash(tree.Container), "/") + "/"
+	if strings.HasPrefix(a.Relative, prefix) {
+		return filepath.FromSlash(strings.TrimPrefix(a.Relative, prefix))
+	}
+	return filepath.FromSlash(a.Relative)
+}
+
+// OpaqueSidecarTargetName gives disc/ISO sidecars the movie basename Emby
+// expects and retains a trailing language/flag suffix when one is present.
+func OpaqueSidecarTargetName(title string, year int, a Asset) string {
+	stem := strings.TrimSuffix(filepath.Base(a.Relative), filepath.Ext(a.Relative))
+	suffix := suffixRE.FindString(stem)
+	return catalog.SeriesDirName(title, year) + suffix + filepath.Ext(a.Relative)
+}
+
+func pathDir(rel string) string {
+	d := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
+	if d == "." {
+		return ""
+	}
+	return d
+}
+
+func joinSlash(parent, child string) string {
+	if parent == "" {
+		return child
+	}
+	return strings.TrimSuffix(parent, "/") + "/" + child
 }
 
 // TargetName returns the Emby basename shared by a version and its sidecars.

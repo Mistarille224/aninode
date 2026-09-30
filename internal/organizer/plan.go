@@ -184,11 +184,17 @@ func (planner *filePlanner) planMovie(ctx context.Context, paths []string) (Plan
 	switch b.Kind {
 	case moviebundle.BluRay, moviebundle.DVD:
 		for _, a := range b.OpaqueTree.Assets {
-			add(a, a.Relative, ActionLink, "opaque disc tree: preserve relative path and filename")
+			add(a, moviebundle.OpaqueTargetRelative(b.OpaqueTree, a), ActionLink, "opaque disc tree: normalize wrapper and preserve disc path")
+		}
+		for _, a := range b.OpaqueTree.Sidecars {
+			add(a, moviebundle.OpaqueSidecarTargetName(planner.cfg.movie.title, planner.cfg.movie.year, a), ActionLink, "external disc sidecar")
 		}
 	case moviebundle.ISO:
 		a := b.OpaqueTree.Assets[0]
 		add(a, moviebundle.ISOTargetName(planner.cfg.movie.title, planner.cfg.movie.year, a), ActionLink, "opaque ISO image")
+		for _, a := range b.OpaqueTree.Sidecars {
+			add(a, moviebundle.OpaqueSidecarTargetName(planner.cfg.movie.title, planner.cfg.movie.year, a), ActionLink, "external ISO sidecar")
+		}
 	case moviebundle.Files:
 		for _, v := range b.Versions {
 			add(v.Video, moviebundle.TargetName(planner.cfg.movie.title, planner.cfg.movie.year, v, v.Video), ActionLink, "movie version")

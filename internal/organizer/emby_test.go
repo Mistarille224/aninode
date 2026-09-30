@@ -96,6 +96,49 @@ func TestMovieOpaqueBluRayPreservesTreeAsHardlinks(t *testing.T) {
 	}
 }
 
+func TestMovieNestedBluRayPublishesCanonicalEmbyTree(t *testing.T) {
+	root := t.TempDir()
+	source, target := filepath.Join(root, "source"), filepath.Join(root, "target")
+	paths := []string{
+		"Release/test/BDMV/index.bdmv",
+		"Release/test/BDMV/STREAM/00001.m2ts",
+		"Release/test/CERTIFICATE/id.bdmv",
+		"Release/Subs/custom.zh-CN.ass",
+	}
+	for _, rel := range paths {
+		p := filepath.Join(source, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(rel), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := WithMovieLayout(Config{Source: source, Target: target}, MovieLayout{Title: "Natsu e no Tunnel", Year: 2022})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ApplyPlan(context.Background(), cfg, plan)
+	if err != nil || result.Linked != len(paths) {
+		t.Fatalf("result=%+v plan=%+v err=%v", result, plan, err)
+	}
+	wants := map[string]string{
+		"Release/test/BDMV/index.bdmv":        "BDMV/index.bdmv",
+		"Release/test/BDMV/STREAM/00001.m2ts": "BDMV/STREAM/00001.m2ts",
+		"Release/test/CERTIFICATE/id.bdmv":    "CERTIFICATE/id.bdmv",
+		"Release/Subs/custom.zh-CN.ass":       "Natsu e no Tunnel (2022).zh-CN.ass",
+	}
+	for from, to := range wants {
+		if !sameFile(filepath.Join(source, filepath.FromSlash(from)), filepath.Join(target, filepath.FromSlash(to))) {
+			t.Fatalf("not a hardlink: %s -> %s", from, to)
+		}
+	}
+}
+
 func TestMovieSidecarsMultipleAudioAreDistinctHardlinks(t *testing.T) {
 	root := t.TempDir()
 	source, target := filepath.Join(root, "source"), filepath.Join(root, "target")

@@ -61,11 +61,63 @@ func TestOpaqueDiscAndMixedKinds(t *testing.T) {
 	}
 }
 
+func TestNestedBluRayNormalizesWrapperCertificateAndSidecar(t *testing.T) {
+	root := files(t,
+		"Release.Group/test/BDMV/index.bdmv",
+		"Release.Group/test/BDMV/MovieObject.bdmv",
+		"Release.Group/test/BDMV/STREAM/00001.m2ts",
+		"Release.Group/test/CERTIFICATE/id.bdmv",
+		"Release.Group/Subtitles/unrelated-name.zh-CN.ass",
+		"Release.Group/readme.txt",
+	)
+	b, err := Observe(root, Options{Title: "Natsu e no Tunnel", Year: 2022})
+	if err != nil || b.Kind != BluRay || b.Conflict != "" {
+		t.Fatalf("bundle=%+v err=%v", b, err)
+	}
+	if b.OpaqueTree.Container != "Release.Group/test" || len(b.OpaqueTree.Assets) != 4 || len(b.OpaqueTree.Sidecars) != 1 || len(b.Excluded) != 1 {
+		t.Fatalf("bundle=%+v", b)
+	}
+	want := map[string]bool{
+		"BDMV/index.bdmv":        true,
+		"BDMV/MovieObject.bdmv":  true,
+		"BDMV/STREAM/00001.m2ts": true,
+		"CERTIFICATE/id.bdmv":    true,
+	}
+	for _, a := range b.OpaqueTree.Assets {
+		delete(want, filepath.ToSlash(OpaqueTargetRelative(b.OpaqueTree, a)))
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing normalized paths=%v", want)
+	}
+	if got := OpaqueSidecarTargetName("Natsu e no Tunnel", 2022, b.OpaqueTree.Sidecars[0]); got != "Natsu e no Tunnel (2022).zh-CN.ass" {
+		t.Fatalf("sidecar target=%q", got)
+	}
+}
+
+func TestSingleFileMovieAcceptsArbitrarilyNamedNestedSubtitle(t *testing.T) {
+	b, err := Observe(files(t, "Movie.2024.mp4", "Subs/Chinese.ass"), Options{Title: "Movie", Year: 2024})
+	if err != nil || b.Conflict != "" || len(b.Versions) != 1 || len(b.Versions[0].Subtitles) != 1 {
+		t.Fatalf("bundle=%+v err=%v", b, err)
+	}
+}
+
+func TestDiscDirectoryNameRequiresFormatControlFile(t *testing.T) {
+	b, err := Observe(files(t, "archive/BDMV/notes.txt"), Options{Title: "Movie"})
+	if err != nil || b.Recognized || b.Kind == BluRay {
+		t.Fatalf("bundle=%+v err=%v", b, err)
+	}
+}
+
 func TestISOAndOverride(t *testing.T) {
 	root := files(t, "abcabc147.bluray.iso")
 	b, err := Observe(root, Options{Title: "abcabc147"})
 	if err != nil || b.Kind != ISO {
 		t.Fatalf("bundle=%+v err=%v", b, err)
+	}
+	root = files(t, "abcabc147.bluray.iso", "other.mkv")
+	b, err = Observe(root, Options{Title: "abcabc147"})
+	if err != nil || b.Kind != Conflict {
+		t.Fatalf("ISO plus second main carrier bundle=%+v err=%v", b, err)
 	}
 	root = files(t, "abcabc147.mkv", "Extras/bonus01.mkv")
 	b, err = Observe(root, Options{Title: "abcabc147", Overrides: map[string]string{"Extras/bonus01.mkv": "extra"}})
